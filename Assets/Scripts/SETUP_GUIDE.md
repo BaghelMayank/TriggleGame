@@ -534,6 +534,34 @@ to click".
 `NetworkMatch` broadcasts from `GameEvents.OnBandPlaced` rather than from the input layer, so every path
 that can place a band is covered — mouse, touch, and the AI when a computer seat shares the device.
 
+### Chat
+
+A slim tab on the left edge of the HUD opens a message log and a grid of six quick-chat phrases, each
+with a generated emote glyph. `Assets/Scripts/UI/ChatPanelController.cs` sends and receives through
+`NetworkMatch`, so it holds no reference to a transport and does not care which one is in use.
+
+**Quick-chat, not free text.** It is playable one-handed on a phone, it travels as a single integer so a
+message costs the same as a move and cannot smuggle anything, and it needs no moderation, filtering or
+reporting flow — which open text chat between strangers does need, and which is far more work than the
+panel itself. Phrase ids are the wire format, so `ChatPhrases` entries may be appended but never
+reordered or removed.
+
+**Collapsed by default, and it must stay that way.** The board fills most of the screen now, so an
+always-open panel would cover it — and being a raycast target, it would swallow peg clicks in that area.
+The tab sits in the gap between the top-left and bottom-left player cards (which occupy the corners down
+to y=208 and up from y=818 in canvas units); the panel spans roughly 290–790, so it touches neither.
+
+Your own messages are echoed locally rather than waiting for them to come back, because they never do —
+every transport delivers to the *other* peers only. With no session running the panel still works and
+says so, so it can be tried before the transport lands.
+
+> **Name collisions with the TMP examples.** This class is `ChatPanelController`, not `ChatController`,
+> because `Assets/TextMesh Pro/Examples & Extras/Scripts/ChatController.cs` declares a
+> `ChatController` in the **global** namespace — and in C# a type declared in the global namespace beats
+> one imported through a `using`. `AddComponent<ChatController>()` therefore bound to TMP's example
+> component with no compile error and no warning; the only symptom was every serialized field failing to
+> wire. Prefix or suffix any new class whose bare name is generic.
+
 ### Verification
 
 `Tools ▸ Triggle ▸ Verify Multiplayer Spine`, with no transport and no network:

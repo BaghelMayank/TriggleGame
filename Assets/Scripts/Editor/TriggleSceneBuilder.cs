@@ -3,6 +3,7 @@ using System.IO;
 using Triggle.Audio;
 using Triggle.Core;
 using Triggle.Gameplay;
+using Triggle.Net;
 using Triggle.Grid;
 using Triggle.Interaction;
 using Triggle.UI;
@@ -544,6 +545,10 @@ namespace Triggle.EditorTools
             var sound = systemsGo.AddComponent<SoundManager>();
             var match = systemsGo.AddComponent<MatchController>();
             var ai = systemsGo.AddComponent<AiController>();
+
+            // Idle until a transport is handed to it, so a local game is completely unaffected.
+            var net = systemsGo.AddComponent<NetworkMatch>();
+
             WireAudio(sound);
 
             using (var so = new SerializedWiring(flow))
@@ -564,6 +569,13 @@ namespace Triggle.EditorTools
             {
                 so.Ref("flowController", flow);
                 so.Int("roundCount", 1);      // the lobby overwrites this
+                so.Bool("verboseLogging", false);
+            }
+
+            using (var so = new SerializedWiring(net))
+            {
+                so.Ref("flowController", flow);
+                so.Ref("matchController", match);
                 so.Bool("verboseLogging", false);
             }
 
@@ -674,6 +686,7 @@ namespace Triggle.EditorTools
             {
                 Flow = flow,
                 Match = match,
+                Net = net,
                 Palette = assets.Palette,
                 Themes = themeLibrary,
                 Gradient = _gradientSprite,

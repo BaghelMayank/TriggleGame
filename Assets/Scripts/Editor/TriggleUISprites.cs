@@ -36,6 +36,12 @@ namespace Triggle.EditorTools
         /// <summary>Path of one of the generated player emblems.</summary>
         public static string AvatarPath(int index) => $"{Folder}/T_Avatar{index}.png";
 
+        /// <summary>Number of generated quick-chat emotes. Matches <c>ChatPhrases.Count</c>.</summary>
+        public const int EmoteCount = 6;
+
+        /// <summary>Path of one of the generated quick-chat emotes.</summary>
+        public static string EmotePath(int index) => $"{Folder}/T_Emote{index}.png";
+
         private const int PillSize = 96;
         private const int PillRadius = 47;
         private const int PillBorder = 47;
@@ -65,9 +71,10 @@ namespace Triggle.EditorTools
             Generate(CircleOutline, CircleSize, CircleSize / 2, 0, Shape.Outline, 6f, 0f, false);
 
             for (int i = 0; i < AvatarCount; i++) GenerateAvatar(i);
+            for (int i = 0; i < EmoteCount; i++) GenerateGlyph(EmotePath(i), EmotePolygons(i), 0.80f);
 
             AssetDatabase.Refresh();
-            Debug.Log($"[Triggle] Rebuilt {8 + AvatarCount} neon UI sprites in {Folder}.");
+            Debug.Log($"[Triggle] Rebuilt {8 + AvatarCount + EmoteCount} neon UI sprites in {Folder}.");
         }
 
         /// <summary>
@@ -79,10 +86,21 @@ namespace Triggle.EditorTools
         /// figurative - triangles and polygons read as part of the game's own language, whereas a bad
         /// placeholder character would just look unfinished.
         /// </remarks>
-        private static void GenerateAvatar(int index)
+        private static void GenerateAvatar(int index) =>
+            GenerateGlyph(AvatarPath(index), new[] { AvatarPolygon(index) }, 0.72f);
+
+        /// <summary>
+        /// Draws one or more polygons into a white sprite, anti-aliased from a signed distance field.
+        /// </summary>
+        /// <param name="parts">
+        /// Unioned by taking the nearest distance, so a glyph made of separate strokes - the bar and dot
+        /// of an exclamation mark, the frame and waist of an hourglass - comes out as one shape rather
+        /// than needing a second sprite per stroke.
+        /// </param>
+        /// <param name="fill">Fraction of the sprite the glyph spans, leaving room inside its chip.</param>
+        private static void GenerateGlyph(string assetPath, Vector2[][] parts, float fill)
         {
             const int size = 128;
-            Vector2[] polygon = AvatarPolygon(index);
 
             var texture = new Texture2D(size, size, TextureFormat.RGBA32, false)
             {
@@ -91,18 +109,19 @@ namespace Triggle.EditorTools
 
             var pixels = new Color32[size * size];
             float half = size * 0.5f;
-
-            // Glyph occupies the middle ~72% of the sprite, leaving breathing room inside its chip.
-            float scale = half * 0.72f;
+            float scale = half * fill;
 
             for (int y = 0; y < size; y++)
             {
                 for (int x = 0; x < size; x++)
                 {
                     var p = new Vector2((x + 0.5f - half) / scale, (y + 0.5f - half) / scale);
-                    float distance = PolygonDistance(p, polygon) * scale;   // back to pixel units
-                    float alpha = Mathf.Clamp01(0.5f - distance);
 
+                    float distance = float.PositiveInfinity;
+                    for (int i = 0; i < parts.Length; i++)
+                        distance = Mathf.Min(distance, PolygonDistance(p, parts[i]));
+
+                    float alpha = Mathf.Clamp01(0.5f - distance * scale);   // back to pixel units
                     pixels[y * size + x] = new Color(1f, 1f, 1f, alpha);
                 }
             }
@@ -110,7 +129,6 @@ namespace Triggle.EditorTools
             texture.SetPixels32(pixels);
             texture.Apply();
 
-            string assetPath = AvatarPath(index);
             string absolute = Application.dataPath + assetPath.Substring("Assets".Length);
             Directory.CreateDirectory(Path.GetDirectoryName(absolute));
             File.WriteAllBytes(absolute, texture.EncodeToPNG());
@@ -150,6 +168,98 @@ namespace Triggle.EditorTools
                         new Vector2(0f, 0.35f), new Vector2(-0.45f, -0.2f), new Vector2(-1f, -0.2f)
                     };
             }
+        }
+
+        /// <summary>
+        /// Outlines of each quick-chat emote, in normalised -1..1 space. Index matches
+        /// <c>ChatPhrases</c>.
+        /// </summary>
+        /// <remarks>
+        /// Geometric rather than figurative, for the same reason the player emblems are: angular shapes
+        /// read as part of this game's own language, and a crudely drawn smiley would just look
+        /// unfinished next to the lattice. Each one also has to survive being tinted to a player colour
+        /// and drawn at 40 pixels, which rules out anything with fine detail.
+        /// </remarks>
+        private static Vector2[][] EmotePolygons(int index)
+        {
+            switch (index)
+            {
+                case 0:   // upward triangle - "Nice one!", the shape you are trying to claim
+                    return new[] { Regular(3, 1f, 90f) };
+
+                case 1:   // star - "Good game!"
+                    return new[] { Star(5, 1f, 0.45f, 90f) };
+
+                case 2:   // exclamation - "Wow!"
+                    return new[]
+                    {
+                        new[]
+                        {
+                            new Vector2(-0.18f, 1f), new Vector2(0.18f, 1f),
+                            new Vector2(0.10f, -0.12f), new Vector2(-0.10f, -0.12f)
+                        },
+                        Regular(8, 0.22f, 0f, new Vector2(0f, -0.62f))
+                    };
+
+                case 3:   // hourglass - "Thinking..."
+                    return new[]
+                    {
+                        new[]
+                        {
+                            new Vector2(-0.72f, 1f), new Vector2(0.72f, 1f), new Vector2(0.72f, 0.78f),
+                            new Vector2(0.12f, 0f), new Vector2(0.72f, -0.78f), new Vector2(0.72f, -1f),
+                            new Vector2(-0.72f, -1f), new Vector2(-0.72f, -0.78f), new Vector2(-0.12f, 0f),
+                            new Vector2(-0.72f, 0.78f)
+                        }
+                    };
+
+                case 4:   // arrow up - "Good luck!"
+                    return new[]
+                    {
+                        new[]
+                        {
+                            new Vector2(0f, 1f), new Vector2(0.85f, 0.05f), new Vector2(0.34f, 0.05f),
+                            new Vector2(0.34f, -1f), new Vector2(-0.34f, -1f), new Vector2(-0.34f, 0.05f),
+                            new Vector2(-0.85f, 0.05f)
+                        }
+                    };
+
+                default:  // stretched band over two pegs - "So close!"
+                    return new[]
+                    {
+                        new[]
+                        {
+                            new Vector2(-0.95f, 0.26f), new Vector2(0.95f, 0.26f),
+                            new Vector2(0.95f, -0.26f), new Vector2(-0.95f, -0.26f)
+                        },
+                        Regular(8, 0.42f, 0f, new Vector2(-0.62f, 0f)),
+                        Regular(8, 0.42f, 0f, new Vector2(0.62f, 0f))
+                    };
+            }
+        }
+
+        /// <summary>Alternating outer and inner points, wound in order.</summary>
+        private static Vector2[] Star(int points, float outer, float inner, float startDegrees)
+        {
+            var result = new Vector2[points * 2];
+
+            for (int i = 0; i < points * 2; i++)
+            {
+                float angle = (startDegrees + i * 180f / points) * Mathf.Deg2Rad;
+                float radius = (i & 1) == 0 ? outer : inner;
+
+                result[i] = new Vector2(Mathf.Cos(angle), Mathf.Sin(angle)) * radius;
+            }
+
+            return result;
+        }
+
+        private static Vector2[] Regular(int sides, float radius, float startDegrees, Vector2 offset)
+        {
+            Vector2[] points = Regular(sides, radius, startDegrees);
+            for (int i = 0; i < points.Length; i++) points[i] += offset;
+
+            return points;
         }
 
         private static Vector2[] Regular(int sides, float radius, float startDegrees)

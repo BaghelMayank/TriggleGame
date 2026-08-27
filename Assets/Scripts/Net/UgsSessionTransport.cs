@@ -38,8 +38,17 @@ namespace Triggle.Net
         /// </summary>
         public const int MaxPacketSize = 512;
 
+        /// <summary>How long to wait for the Relay bind handshake before giving up.</summary>
+        private const float BindTimeoutSeconds = 15f;
+
         private NetworkDriver _driver;
         private NetworkPipeline _pipeline;
+        private NetworkEndPoint _serverEndpoint;
+
+        /// <summary>False until the Relay handshake finishes and the driver can listen or connect.</summary>
+        private bool _ready;
+        private float _bindDeadline;
+        private readonly bool _verbose;
 
         private readonly List<NetworkConnection> _connections = new List<NetworkConnection>(4);
         private readonly Queue<NetMessage> _outbox = new Queue<NetMessage>(8);
@@ -64,17 +73,20 @@ namespace Triggle.Net
         /// over the result. Keeping the driver's lifetime synchronous means <see cref="Poll"/> and
         /// <see cref="Dispose"/> have no awaits to race against.
         /// </remarks>
-        public UgsSessionTransport(RelayServerData relayData, bool isHost, int localSeat, string joinCode)
+        public UgsSessionTransport(RelayServerData relayData, bool isHost, int localSeat, string joinCode,
+                                   bool verboseLogging = false)
         {
             IsHost = isHost;
             LocalSeat = localSeat;
             JoinCode = joinCode;
+            _verbose = verboseLogging;
 
             var settings = new NetworkSettings();
             settings.WithRelayParameters(ref relayData);
 
             _driver = NetworkDriver.Create(settings);
             _pipeline = _driver.CreatePipeline(typeof(ReliableSequencedPipelineStage));
+            _serverEndpoint = relayData.Endpoint;
 
             // NetworkEndPoint, capital P: Unity Transport 1.3 spells it this way and only renamed it to
             // NetworkEndpoint in 2.x.
@@ -84,15 +96,11 @@ namespace Triggle.Net
                 return;
             }
 
-            if (isHost)
-            {
-                if (_driver.Listen() != 0) Fail("Relay host could not start listening.");
-                return;
-            }
-
-            // A guest's single connection is to the host's allocation, which the relay parameters in the
-            // driver settings already point at.
-            _connections.Add(_driver.Connect(relayData.Endpoint));
+            // Listening and connecting both wait for Bound, in Poll. Over Relay, Bind only *starts* a
+            // handshake with the relay server - the driver is not usable until that completes, which
+            // takes several frames. Calling Listen on the next line silently fails, and the symptom is
+            // a room that forms perfectly over Lobby and then never carries a single byte.
+            _bindDeadline = Time.realtimeSinceStartup + BindTimeoutSeconds;
         }
 
         // ------------------------------------------------------------------ sending
@@ -170,6 +178,8 @@ namespace Triggle.Net
 
             _driver.ScheduleUpdate().Complete();
 
+            if (!_ready && !TryFinishBinding()) return;
+
             if (IsHost) AcceptNewConnections();
 
             NetworkEvent.Type type;
@@ -193,6 +203,44 @@ namespace Triggle.Net
             }
 
             if (State == SessionStatus.Connected) Flush();
+        }
+
+        /// <summary>
+        /// Starts listening or connecting, once the Relay handshake has completed.
+        /// </summary>
+        /// <returns>True when the driver is ready to carry traffic.</returns>
+        private bool TryFinishBinding()
+        {
+            if (State == SessionStatus.Failed) return false;
+
+            if (!_driver.Bound)
+            {
+                if (Time.realtimeSinceStartup < _bindDeadline) return false;
+
+                Fail("Relay did not finish binding. Check that Relay is enabled for this project on " +
+                     "the Unity Cloud dashboard, and that the device has a working connection.");
+
+                return false;
+            }
+
+            if (IsHost)
+            {
+                if (_driver.Listen() != 0)
+                {
+                    Fail("Relay host could not start listening.");
+                    return false;
+                }
+            }
+            else
+            {
+                // A guest's single connection is to the host's allocation, which the relay parameters in
+                // the driver settings already point at.
+                _connections.Add(_driver.Connect(_serverEndpoint));
+            }
+
+            _ready = true;
+            Log(IsHost ? "relay bound, host is listening" : "relay bound, connecting to host");
+            return true;
         }
 
         private void AcceptNewConnections()
@@ -275,6 +323,11 @@ namespace Triggle.Net
         {
             Debug.LogError($"[Triggle] Relay transport failed: {reason}");
             SetState(SessionStatus.Failed);
+        }
+
+        private void Log(string message)
+        {
+            if (_verbose) Debug.Log($"[Triggle] Relay: {message}");
         }
 
         private void SetState(SessionStatus status)

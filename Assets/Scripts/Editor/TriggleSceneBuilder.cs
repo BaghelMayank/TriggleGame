@@ -576,17 +576,20 @@ namespace Triggle.EditorTools
                 so.Bool("verboseLogging", false);
             }
 
+            // Networking logs are on while online play is being brought up: a Relay session gives almost
+            // no feedback on screen, and the console is the only way to tell a failed bind from a failed
+            // sign-in from a guest that never announced itself. Turn both off before shipping.
             using (var so = new SerializedWiring(net))
             {
                 so.Ref("flowController", flow);
                 so.Ref("matchController", match);
-                so.Bool("verboseLogging", false);
+                so.Bool("verboseLogging", true);
             }
 
             using (var so = new SerializedWiring(rooms))
             {
                 so.Bool("useDtls", true);
-                so.Bool("verboseLogging", false);
+                so.Bool("verboseLogging", true);
             }
 
             using (var so = new SerializedWiring(ai))

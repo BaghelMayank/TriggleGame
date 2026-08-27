@@ -124,7 +124,7 @@ namespace Triggle.Net
                 Log($"hosting room {_lobby.LobbyCode} (relay {relayCode})");
 
                 var relayData = new RelayServerData(allocation, ConnectionType);
-                return new UgsSessionTransport(relayData, true, 1, _lobby.LobbyCode);
+                return new UgsSessionTransport(relayData, true, 1, _lobby.LobbyCode, verboseLogging);
             }
             catch (Exception e)
             {
@@ -173,7 +173,7 @@ namespace Triggle.Net
                 Log($"joined room {_lobby.LobbyCode} as seat {seat}");
 
                 var relayData = new RelayServerData(allocation, ConnectionType);
-                return new UgsSessionTransport(relayData, false, seat, _lobby.LobbyCode);
+                return new UgsSessionTransport(relayData, false, seat, _lobby.LobbyCode, verboseLogging);
             }
             catch (LobbyServiceException e) when (e.Reason == LobbyExceptionReason.LobbyNotFound)
             {

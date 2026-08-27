@@ -128,9 +128,18 @@ namespace Triggle.Net
             if (_transport.State == SessionStatus.Connected) Announce();
         }
 
+        /// <summary>Raised when the transport's connection state changes.</summary>
+        public event Action<SessionStatus> StatusChanged;
+
+        /// <summary>Connection state of the current session, or Offline when there is none.</summary>
+        public SessionStatus Status => _transport?.State ?? SessionStatus.Offline;
+
         private void HandleStateChanged(SessionStatus status)
         {
             if (status == SessionStatus.Connected) Announce();
+
+            Log($"transport is now {status}");
+            StatusChanged?.Invoke(status);
         }
 
         /// <summary>

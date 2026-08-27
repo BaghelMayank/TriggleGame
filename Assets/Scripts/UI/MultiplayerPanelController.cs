@@ -96,6 +96,7 @@ namespace Triggle.UI
                 networkMatch.RosterChanged += Refresh;
                 networkMatch.MatchStartedByHost += HandleMatchStartedByHost;
                 networkMatch.Desynced += ShowError;
+                networkMatch.StatusChanged += HandleStatusChanged;
             }
 
             Refresh();
@@ -110,6 +111,7 @@ namespace Triggle.UI
                 networkMatch.RosterChanged -= Refresh;
                 networkMatch.MatchStartedByHost -= HandleMatchStartedByHost;
                 networkMatch.Desynced -= ShowError;
+                networkMatch.StatusChanged -= HandleStatusChanged;
             }
         }
 
@@ -202,6 +204,38 @@ namespace Triggle.UI
         private void HandleMatchStartedByHost()
         {
             if (mainMenu != null) mainMenu.EnterGame();
+        }
+
+        /// <summary>
+        /// Keeps the screen honest about the connection, which the roster alone cannot do.
+        /// </summary>
+        /// <remarks>
+        /// The Relay handshake takes several frames and can fail outright, and neither shows up as a
+        /// roster change - so without this the host sits looking at a room code and a dead START button
+        /// with nothing on screen explaining why.
+        /// </remarks>
+        private void HandleStatusChanged(SessionStatus status)
+        {
+            switch (status)
+            {
+                case SessionStatus.Connecting:
+                    SetStatus("Connecting to Relay...", false);
+                    break;
+
+                case SessionStatus.Connected when rooms != null && rooms.IsHost:
+                    SetStatus("Someone joined. Press START when everyone is in.", false);
+                    break;
+
+                case SessionStatus.Connected:
+                    SetStatus("Connected. Waiting for the host to start.", false);
+                    break;
+
+                case SessionStatus.Failed:
+                    SetStatus("Lost the connection. Leave the room and try again.", true);
+                    break;
+            }
+
+            Refresh();
         }
 
         private async Task LeaveAsync()

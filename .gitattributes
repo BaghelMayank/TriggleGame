@@ -1,0 +1,39 @@
+# Unity serialises scenes, prefabs and assets as YAML text. Forcing them to be treated as text keeps
+# diffs readable and lets Unity's own SmartMerge tool resolve conflicts instead of git giving up.
+*.cs                 text diff=csharp
+*.shader             text
+*.cginc              text
+*.hlsl               text
+*.md                 text
+*.json               text
+*.asmdef             text
+*.gitignore          text
+*.gitattributes      text
+
+*.unity              text merge=unityyamlmerge eol=lf
+*.prefab             text merge=unityyamlmerge eol=lf
+*.asset              text merge=unityyamlmerge eol=lf
+*.mat                text merge=unityyamlmerge eol=lf
+*.meta               text merge=unityyamlmerge eol=lf
+*.controller         text merge=unityyamlmerge eol=lf
+*.anim               text merge=unityyamlmerge eol=lf
+*.physicMaterial     text merge=unityyamlmerge eol=lf
+
+# Binary assets: never diff or merge these, and never mangle line endings in them.
+*.png                binary
+*.jpg                binary
+*.jpeg               binary
+*.psd                binary
+*.tga                binary
+*.gif                binary
+*.ttf                binary
+*.otf                binary
+*.fbx                binary
+*.wav                binary
+*.mp3                binary
+*.ogg                binary
+*.dll                binary
+*.so                 binary
+*.a                  binary
+*.aar                binary
+*.pdf                binary

@@ -1,0 +1,22 @@
+%YAML 1.1
+%TAG !u! tag:unity3d.com,2011:
+--- !u!114 &11400000
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 0}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 9e3afbc19e70a174090e3715117bd745, type: 3}
+  m_Name: Theme_01_NeonGrid
+  m_EditorClassIdentifier: 
+  displayName: Neon Grid
+  backgroundColor: {r: 0.035, g: 0.02, b: 0.07, a: 1}
+  slabColor: {r: 0.075, g: 0.047, b: 0.145, a: 1}
+  rimColor: {r: 0.05, g: 0.95, b: 0.95, a: 1}
+  latticeLineColor: {r: 0.55, g: 0.25, b: 0.85, a: 1}
+  socketColor: {r: 0.028, g: 0.016, b: 0.055, a: 1}
+  pegColor: {r: 0.9, g: 0.92, b: 1, a: 1}
+  slabSmoothness: 0.35

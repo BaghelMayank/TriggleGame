@@ -1,0 +1,64 @@
+TRIGGLE - AUDIO CREDITS AND LICENCES
+====================================
+
+Keep this file in the project. The music track below is CC-BY, which makes
+attribution a licence condition, not a courtesy: the credit must also appear
+somewhere the player can see it (the How to Play / Settings screen or the store
+listing).
+
+
+MUSIC
+-----
+
+house-in-a-forest-loop.ogg
+    "Loop - House In a Forest"
+    Copyright (c) 2012 HorrorPen
+    https://opengameart.org/users/horrorpen
+    Source:  https://opengameart.org/content/loop-house-in-a-forest
+    Licence: CC-BY 3.0 (Attribution)
+             https://creativecommons.org/licenses/by/3.0/
+    ** ATTRIBUTION REQUIRED - must be credited in-game or in the store listing. **
+
+ambience.ogg
+    From Kenney's "Starter Kit: City Builder"
+    Copyright (c) Kenney - https://kenney.nl
+    Licence: CC0 1.0 Universal (public domain dedication)
+             https://creativecommons.org/publicdomain/zero/1.0/
+    No attribution required.
+
+
+SOUND EFFECTS - all CC0 1.0, by Kenney (https://kenney.nl)
+----------------------------------------------------------
+
+No attribution required for any of these. Credited here anyway.
+
+    peg-select.ogg    <- tile-swap.ogg      Starter Kit: Match-3
+    claim-score.ogg   <- tile-match.ogg     Starter Kit: Match-3
+    token-land.ogg    <- tile-land.ogg      Starter Kit: Match-3
+    band-place.ogg    <- placement-a.ogg    Starter Kit: City Builder
+    invalid.ogg       <- removal-a.ogg      Starter Kit: City Builder
+    ui-click.ogg      <- toggle.ogg         Starter Kit: City Builder
+    ui-back.ogg       <- rotate.ogg         Starter Kit: City Builder
+    win-accent.ogg    <- coin.ogg           Starter Kit: 3D Platformer
+
+Kenney's starter kits state: "Assets included in this package (2D sprites,
+3D models and sound effects) are CC0 licensed."
+
+
+GENERATED AUDIO
+---------------
+
+The win fanfare is synthesised at runtime by SoundManager (a rising C-E-G-C
+arpeggio with an added fifth). No suitable CC0 fanfare was available from the
+sources above, so rather than ship a poor match it is generated in code. Drop a
+real clip into SoundManager's "Win Fanfare Clip" field to replace it.
+
+
+FONTS (for reference - see Assets/Fonts/Triggle for the licence texts)
+----------------------------------------------------------------------
+
+    Archivo Black    SIL Open Font License 1.1
+    Chakra Petch     SIL Open Font License 1.1
+    Poppins          SIL Open Font License 1.1
+
+All three permit commercial use and redistribution inside an application.

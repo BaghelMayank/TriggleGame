@@ -1,0 +1,33 @@
+%YAML 1.1
+%TAG !u! tag:unity3d.com,2011:
+--- !u!114 &11400000
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 0}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: f453f3e67acd5e248b6aaf738f9cb03e, type: 3}
+  m_Name: PlayerColorPalette
+  m_EditorClassIdentifier: 
+  players:
+  - displayName: Crimson
+    color: {r: 0.95, g: 0.27, b: 0.32, a: 1}
+    tokenMaterial: {fileID: 0}
+    bandMaterial: {fileID: 0}
+  - displayName: Azure
+    color: {r: 0.24, g: 0.6, b: 0.96, a: 1}
+    tokenMaterial: {fileID: 0}
+    bandMaterial: {fileID: 0}
+  - displayName: Verdant
+    color: {r: 0.33, g: 0.84, b: 0.44, a: 1}
+    tokenMaterial: {fileID: 0}
+    bandMaterial: {fileID: 0}
+  - displayName: Amber
+    color: {r: 0.98, g: 0.79, b: 0.24, a: 1}
+    tokenMaterial: {fileID: 0}
+    bandMaterial: {fileID: 0}
+  neutralColor: {r: 0.72, g: 0.74, b: 0.8, a: 1}
+  neutralDisplayName: Neutral

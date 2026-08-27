@@ -98,6 +98,31 @@ namespace Triggle.Net
             _transport = null;
         }
 
+        /// <summary>
+        /// Host only: tells everyone the rules this match runs under, before any board is built.
+        /// </summary>
+        /// <remarks>
+        /// This is what makes the whole design work. Radius and band length decide the band catalogue,
+        /// and the catalogue is what move indices are indices <i>into</i> - so every device must apply
+        /// these settings before generating its lattice. Send this, then start the match; doing it the
+        /// other way round builds two different boards and every move after that is nonsense.
+        /// </remarks>
+        public void BroadcastMatchSettings(int radius, int pegsPerBand, int playerCount, int rounds)
+        {
+            if (!IsOnline || !_transport.IsHost) return;
+
+            _transport.Send(NetMessage.StartMatch(radius, pegsPerBand, playerCount, rounds));
+            Log($"sent match settings: radius {radius}, {playerCount} players, {rounds} rounds");
+        }
+
+        /// <summary>Host only: tells everyone to begin the next round of the series.</summary>
+        public void BroadcastNextRound(int roundNumber)
+        {
+            if (!IsOnline || !_transport.IsHost) return;
+
+            _transport.Send(NetMessage.NextRound(roundNumber));
+        }
+
         /// <summary>Sends a quick-chat phrase or emote to the other players.</summary>
         public void SendChat(int phraseId, string text)
         {

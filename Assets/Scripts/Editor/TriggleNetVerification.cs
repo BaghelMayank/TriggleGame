@@ -129,6 +129,22 @@ namespace Triggle.EditorTools
             }
 
             report.AppendLine($"    {rejected}/{malformed.Count} malformed packets refused without throwing");
+
+            // The Relay transport refuses to send anything over its packet limit, so a message that
+            // could legitimately exceed it would be silently dropped in a live game and never in a test.
+            // Worst case is a Hello or Chat carrying a full-length, entirely multi-byte string.
+            string widest = new string('é', NetMessage.MaxTextLength);
+            int largest = NetMessage.Chat(4, int.MaxValue, widest).Serialize().Length;
+
+            report.AppendLine($"    largest possible message: {largest} bytes " +
+                              $"(transport limit {UgsSessionTransport.MaxPacketSize})");
+
+            if (largest > UgsSessionTransport.MaxPacketSize)
+            {
+                report.AppendLine("    FAIL a legal message does not fit in one packet");
+                failures++;
+            }
+
             return failures;
         }
 

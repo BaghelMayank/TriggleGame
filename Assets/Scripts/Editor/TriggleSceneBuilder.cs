@@ -549,6 +549,10 @@ namespace Triggle.EditorTools
             // Idle until a transport is handed to it, so a local game is completely unaffected.
             var net = systemsGo.AddComponent<NetworkMatch>();
 
+            // Talks to Unity Lobby and Relay only when the player asks for a room; a local or vs-AI
+            // match never signs in and never touches the network.
+            var rooms = systemsGo.AddComponent<UgsRoomService>();
+
             WireAudio(sound);
 
             using (var so = new SerializedWiring(flow))
@@ -576,6 +580,12 @@ namespace Triggle.EditorTools
             {
                 so.Ref("flowController", flow);
                 so.Ref("matchController", match);
+                so.Bool("verboseLogging", false);
+            }
+
+            using (var so = new SerializedWiring(rooms))
+            {
+                so.Bool("useDtls", true);
                 so.Bool("verboseLogging", false);
             }
 

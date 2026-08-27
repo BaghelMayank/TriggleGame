@@ -36,6 +36,12 @@ namespace Triggle.EditorTools
         /// <summary>Corners may sit this far outside the safe rect before it counts as clipped.</summary>
         private const float ToleranceUnits = 0.5f;
 
+        /// <summary>
+        /// How far two controls may intersect before it counts. Generous, because a text rect is
+        /// routinely a little taller than the glyphs inside it.
+        /// </summary>
+        private const float OverlapTolerance = 6f;
+
         private readonly struct Device
         {
             public readonly string Name;
@@ -228,6 +234,129 @@ namespace Triggle.EditorTools
         {
             AuditClipping(panel, root, device, ref controls, ref tightest, clipped);
             AuditReachability(panel, root, device, blocked);
+            AuditOverlap(panel, root, device, blocked);
+        }
+
+        /// <summary>
+        /// Flags two controls that are both on screen and sitting on top of each other.
+        /// </summary>
+        /// <remarks>
+        /// Containment and reachability between them still miss a whole class of fault: two things that
+        /// are each fully inside the safe area, neither covering the other's centre, but visibly
+        /// colliding. Adding a sixth button to the main menu pushed the column into the tagline exactly
+        /// that way, and both other checks passed.
+        /// <para>
+        /// Only pairs where neither is an ancestor of the other are compared - a button's own label sits
+        /// on top of it by design - and only text that would actually render, since an empty label's rect
+        /// overlaps plenty without ever being seen.
+        /// </para>
+        /// </remarks>
+        private static void AuditOverlap(RectTransform panel, RectTransform root, string device,
+                                          List<string> problems)
+        {
+            bool wasActive = panel.gameObject.activeSelf;
+            if (!wasActive) panel.gameObject.SetActive(true);
+
+            try
+            {
+                var safeArea = panel.GetComponentInChildren<CanvasSafeArea>(true);
+                if (safeArea == null) return;
+
+                LayoutRebuilder.ForceRebuildLayoutImmediate(panel);
+                Canvas.ForceUpdateCanvases();
+
+                var boxes = new List<(string Path, Transform Node, Rect Bounds)>();
+
+                foreach (Component control in VisibleControls(safeArea.GetComponent<RectTransform>()))
+                {
+                    var rect = control.transform as RectTransform;
+                    if (rect == null) continue;
+
+                    boxes.Add((Path(control.transform, panel), control.transform, BoundsOf(control, rect, root)));
+                }
+
+                for (int i = 0; i < boxes.Count; i++)
+                {
+                    for (int j = i + 1; j < boxes.Count; j++)
+                    {
+                        if (boxes[i].Node.IsChildOf(boxes[j].Node)) continue;
+                        if (boxes[j].Node.IsChildOf(boxes[i].Node)) continue;
+                        if (IsDeliberateStack(boxes[i], boxes[j])) continue;
+
+                        if (!Overlaps(boxes[i].Bounds, boxes[j].Bounds)) continue;
+
+                        problems.Add($"{device}: {boxes[i].Path} overlaps {boxes[j].Path}");
+                    }
+                }
+            }
+            finally
+            {
+                if (!wasActive) panel.gameObject.SetActive(false);
+            }
+        }
+
+        /// <summary>
+        /// What a control actually covers on screen: its rect, or for text the glyphs inside it.
+        /// </summary>
+        /// <remarks>
+        /// A label's rect is routinely far wider than its words - a left-aligned score sits in a
+        /// 300-unit box holding the single character "0" - so comparing rects reports collisions between
+        /// things that are nowhere near each other. Measuring the rendered mesh instead is what makes an
+        /// overlap report worth reading.
+        /// </remarks>
+        private static Rect BoundsOf(Component control, RectTransform rect, RectTransform space)
+        {
+            if (control is not TMP_Text label) return LocalRect(rect, space);
+
+            label.ForceMeshUpdate();
+            Bounds bounds = label.textBounds;
+
+            if (bounds.size.x <= 0f || bounds.size.y <= 0f) return LocalRect(rect, space);
+
+            // textBounds is in the label's own local space; lift its corners into the shared space.
+            Vector3 min = rect.TransformPoint(bounds.min);
+            Vector3 max = rect.TransformPoint(bounds.max);
+
+            Vector3 a = space.InverseTransformPoint(min);
+            Vector3 b = space.InverseTransformPoint(max);
+
+            return Rect.MinMaxRect(Mathf.Min(a.x, b.x), Mathf.Min(a.y, b.y),
+                                   Mathf.Max(a.x, b.x), Mathf.Max(a.y, b.y));
+        }
+
+        /// <summary>
+        /// True when two labels are stacked on purpose rather than by accident.
+        /// </summary>
+        /// <remarks>
+        /// Text laid over text is sometimes the design: the title is three offset copies of "TRIGGLE"
+        /// making the neon glow, and every input field puts its placeholder exactly where the typed text
+        /// will go. Both are authored as <b>siblings</b> - one parent whose whole job is to hold the
+        /// stack - whereas an accidental collision is between labels from different branches of the
+        /// panel. That distinction is what separates the two without needing a list of exceptions.
+        /// </remarks>
+        private static bool IsDeliberateStack(
+            (string Path, Transform Node, Rect Bounds) a,
+            (string Path, Transform Node, Rect Bounds) b)
+        {
+            bool bothText = a.Node.GetComponent<TMP_Text>() != null &&
+                            b.Node.GetComponent<TMP_Text>() != null;
+
+            return bothText && a.Node.parent == b.Node.parent;
+        }
+
+        private static bool Overlaps(Rect a, Rect b) =>
+            a.xMin < b.xMax - OverlapTolerance && b.xMin < a.xMax - OverlapTolerance &&
+            a.yMin < b.yMax - OverlapTolerance && b.yMin < a.yMax - OverlapTolerance;
+
+        /// <summary>Active controls that would actually draw something.</summary>
+        private static IEnumerable<Component> VisibleControls(RectTransform safeArea)
+        {
+            Selectable[] selectables = safeArea.GetComponentsInChildren<Selectable>(false);
+            for (int i = 0; i < selectables.Length; i++) yield return selectables[i];
+
+            TMP_Text[] labels = safeArea.GetComponentsInChildren<TMP_Text>(false);
+            for (int i = 0; i < labels.Length; i++)
+                if (!string.IsNullOrWhiteSpace(labels[i].text)) yield return labels[i];
         }
 
         private static void AuditClipping(RectTransform panel, RectTransform root, string device,

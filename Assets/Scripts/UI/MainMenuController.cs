@@ -26,16 +26,19 @@ namespace Triggle.UI
         [SerializeField] private MatchController matchController;
         [SerializeField] private LobbyController lobby;
         [SerializeField] private SettingsPanelController settings;
+        [SerializeField] private MultiplayerPanelController multiplayer;
 
         [Header("Screens")]
         [SerializeField] private CanvasGroup rootMenuPanel;
         [SerializeField] private CanvasGroup lobbyPanel;
         [SerializeField] private CanvasGroup howToPlayPanel;
+        [SerializeField] private CanvasGroup multiplayerPanel;
         [SerializeField] private CanvasGroup hudPanel;
 
         [Header("Root Menu Buttons")]
         [SerializeField] private Button playLocalButton;
         [SerializeField] private Button playAiButton;
+        [SerializeField] private Button playOnlineButton;
         [SerializeField] private Button howToPlayButton;
         [SerializeField] private Button settingsButton;
         [SerializeField] private Button quitButton;
@@ -69,15 +72,18 @@ namespace Triggle.UI
             if (matchController == null) matchController = FindObjectOfType<MatchController>();
             if (lobby == null) lobby = FindObjectOfType<LobbyController>();
             if (settings == null) settings = FindObjectOfType<SettingsPanelController>();
+            if (multiplayer == null) multiplayer = FindObjectOfType<MultiplayerPanelController>();
 
             _screens.Clear();
             _screens.Add(rootMenuPanel);
             _screens.Add(lobbyPanel);
             _screens.Add(howToPlayPanel);
+            _screens.Add(multiplayerPanel);
             _screens.Add(hudPanel);
 
             if (playLocalButton != null) playLocalButton.onClick.AddListener(HandleLocalClicked);
             if (playAiButton != null) playAiButton.onClick.AddListener(HandleAiClicked);
+            if (playOnlineButton != null) playOnlineButton.onClick.AddListener(ShowMultiplayer);
             if (howToPlayButton != null) howToPlayButton.onClick.AddListener(ShowHowToPlay);
             if (settingsButton != null) settingsButton.onClick.AddListener(OpenSettings);
             if (quitButton != null) quitButton.onClick.AddListener(HandleQuitClicked);
@@ -101,6 +107,7 @@ namespace Triggle.UI
         {
             if (playLocalButton != null) playLocalButton.onClick.RemoveAllListeners();
             if (playAiButton != null) playAiButton.onClick.RemoveAllListeners();
+            if (playOnlineButton != null) playOnlineButton.onClick.RemoveAllListeners();
             if (howToPlayButton != null) howToPlayButton.onClick.RemoveAllListeners();
             if (settingsButton != null) settingsButton.onClick.RemoveAllListeners();
             if (quitButton != null) quitButton.onClick.RemoveAllListeners();
@@ -168,6 +175,13 @@ namespace Triggle.UI
         {
             FillHowToPlayText();
             ShowScreen(howToPlayPanel);
+        }
+
+        /// <summary>Opens the online room screen.</summary>
+        public void ShowMultiplayer()
+        {
+            if (multiplayer != null) multiplayer.Show();
+            ShowScreen(multiplayerPanel);
         }
 
         /// <summary>

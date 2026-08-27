@@ -68,6 +68,7 @@ namespace Triggle.EditorTools
             public GameFlowController Flow;
             public MatchController Match;
             public NetworkMatch Net;
+            public UgsRoomService Rooms;
             public PlayerColorPalette Palette;
             public BoardThemeLibrary Themes;
             public Sprite Gradient;
@@ -143,6 +144,7 @@ namespace Triggle.EditorTools
             var hudController = canvasGo.AddComponent<GameUIController>();
             var pause = canvasGo.AddComponent<PausePanelController>();
             var chat = canvasGo.AddComponent<ChatPanelController>();
+            var multiplayer = canvasGo.AddComponent<MultiplayerPanelController>();
 
             RectTransform root = canvasGo.GetComponent<RectTransform>();
 
@@ -153,10 +155,12 @@ namespace Triggle.EditorTools
             RootMenu rootMenu = BuildRootMenu(root);
             Lobby lobbyRefs = BuildLobby(root, context.Palette);
             HowToPlay howTo = BuildHowToPlay(root);
+            MultiplayerScreen multiplayerRefs = BuildMultiplayer(root, context.Palette);
             PausePanel pauseRefs = BuildPausePanel(root);
             SettingsScreen settingsRefs = BuildSettings(root);
 
-            WireMenu(menu, context, lobby, settings, rootMenu, lobbyRefs, howTo, hud);
+            WireMenu(menu, context, lobby, settings, multiplayer, rootMenu, lobbyRefs, howTo,
+                     multiplayerRefs, hud);
             WireLobby(lobby, context, menu, lobbyRefs);
             WireSettings(settings, context, settingsRefs);
             WireHud(hudController, context, menu, hud, round, matchPanel);
@@ -164,6 +168,7 @@ namespace Triggle.EditorTools
             // the listener persists in the saved scene (an AddListener call here would not).
             WirePause(pause, context, menu, settings, pauseRefs, hud.MenuButton.Button);
             WireChat(chat, context, hud.Chat);
+            WireMultiplayer(multiplayer, context, menu, multiplayerRefs);
 
             // Saved-scene state: root menu visible, everything else hidden.
             SetHidden(hud.Group);
@@ -173,6 +178,7 @@ namespace Triggle.EditorTools
             SetHidden(howTo.Group);
             SetHidden(settingsRefs.Group);
             SetHidden(pauseRefs.Group);
+            SetHidden(multiplayerRefs.Group);
             SetVisible(rootMenu.Group);
         }
 
@@ -294,7 +300,7 @@ namespace Triggle.EditorTools
         private sealed class RootMenu
         {
             public CanvasGroup Group;
-            public Neon PlayLocal, PlayAi, HowToPlay, Settings, Quit;
+            public Neon PlayLocal, PlayAi, PlayOnline, HowToPlay, Settings, Quit;
             public TMP_Text AiSubLabel;
         }
 
@@ -331,10 +337,15 @@ namespace Triggle.EditorTools
             // --- buttons ------------------------------------------------------
             // One vertical layout group, so the buttons cannot collide however the sizes change.
             const float buttonWidth = 470f;
-            const float buttonHeight = 92f;
 
+            // 84 rather than 92: six rows plus the AI caption come to 542 units at this height, which
+            // clears the tagline above (its lower edge is at +164) and the Quit button below. At 92 the
+            // top button ran into the tagline.
+            const float buttonHeight = 84f;
+
+            // Content spans -391..+151 once laid out: clear of the tagline at +164 and of Quit at -441.
             RectTransform column = CreateColumn(panel, "MenuButtons", new Vector2(0.5f, 0.5f),
-                new Vector2(0f, -96f), new Vector2(560f, 560f), 28f);
+                new Vector2(0f, -120f), new Vector2(560f, 560f), 20f);
 
             refs.PlayLocal = CreateNeonButton(column, "PlayLocalButton", "Play Local", _heading, H2,
                 Vector2.zero, Vector2.zero, new Vector2(buttonWidth, buttonHeight), Cyan, Coral, Ink);
@@ -349,6 +360,10 @@ namespace Triggle.EditorTools
                 TextAlignmentOptions.Center, Vector2.zero, Vector2.zero,
                 new Vector2(300f, 22f), "Difficulty: Normal", InkFaint);
             SetLayoutSize(refs.AiSubLabel.rectTransform, 300f, 22f);
+
+            refs.PlayOnline = CreateNeonButton(column, "PlayOnlineButton", "Play Online", _heading, H2,
+                Vector2.zero, Vector2.zero, new Vector2(buttonWidth, buttonHeight), Cyan, Coral, Ink);
+            SetLayoutSize(refs.PlayOnline.Root, buttonWidth, buttonHeight);
 
             refs.HowToPlay = CreateNeonButton(column, "HowToPlayButton", "How to Play", _heading, H2,
                 Vector2.zero, Vector2.zero, new Vector2(buttonWidth, buttonHeight), Cyan, Coral, Ink);
@@ -366,6 +381,129 @@ namespace Triggle.EditorTools
                 new Vector2(1f, 0f), new Vector2(-120f, 34f), new Vector2(200f, 22f), "v1.0", InkFaint);
 
             return refs;
+        }
+
+        // ==================================================================== multiplayer
+
+        private sealed class MultiplayerScreen
+        {
+            public CanvasGroup Group;
+            public Neon Host, Join, Start, Leave, Back;
+            public TMP_Text RoomCode, Status, StartLabel;
+            public TMP_InputField CodeInput;
+            public TMP_Text[] PlayerRows = new TMP_Text[SeatRoster.SeatCount];
+        }
+
+        private static MultiplayerScreen BuildMultiplayer(RectTransform parent, PlayerColorPalette palette)
+        {
+            var refs = new MultiplayerScreen();
+            RectTransform panel = CreateFullScreen(parent, "MultiplayerPanel", out refs.Group);
+            AddScrim(panel, Scrim);
+
+            Neon card = CreateNeon(panel, "Card", new Vector2(0.5f, 0.5f), Vector2.zero,
+                new Vector2(1000f, 720f), CardFill, Cyan, Coral, false, 0.35f);
+            RectTransform c = card.Root;
+
+            Neon header = CreateNeon(c, "HeaderChip", new Vector2(0.5f, 1f), new Vector2(0f, 8f),
+                new Vector2(460f, 84f), SurfaceFill, Cyan, Coral);
+            CreateText(header.Root, "HeaderLabel", _heading, H2, TextAlignmentOptions.Center,
+                new Vector2(0.5f, 0.5f), Vector2.zero, new Vector2(460f, 44f), "PLAY ONLINE", Cyan);
+
+            // --- host, left half ----------------------------------------------
+            const float column = 240f;
+
+            CreateText(c, "HostHeader", _bodyLight, SmallSize, TextAlignmentOptions.Center,
+                new Vector2(0.5f, 1f), new Vector2(-column, -128f), new Vector2(420f, 24f),
+                "HOST A ROOM", InkFaint).characterSpacing = 8f;
+
+            refs.Host = CreateNeonButton(c, "HostButton", "CREATE ROOM", _heading, 26f,
+                new Vector2(0.5f, 1f), new Vector2(-column, -186f), new Vector2(380f, 74f),
+                Green, Green, Color.white, new Color(Green.r, Green.g, Green.b, 0.20f));
+
+            Neon codeBox = CreateNeon(c, "RoomCodeBox", new Vector2(0.5f, 1f),
+                new Vector2(-column, -272f), new Vector2(380f, 78f), SurfaceFill, Cyan, Cyan);
+            refs.RoomCode = CreateText(codeBox.Root, "RoomCode", _display, 42f,
+                TextAlignmentOptions.Center, new Vector2(0.5f, 0.5f), Vector2.zero,
+                new Vector2(380f, 54f), "- - - - - -", Ink);
+            refs.RoomCode.characterSpacing = 8f;
+
+            // --- join, right half ---------------------------------------------
+            CreateText(c, "JoinHeader", _bodyLight, SmallSize, TextAlignmentOptions.Center,
+                new Vector2(0.5f, 1f), new Vector2(column, -128f), new Vector2(420f, 24f),
+                "JOIN WITH A CODE", InkFaint).characterSpacing = 8f;
+
+            refs.CodeInput = CreateInputField(c, "CodeInput", new Vector2(0.5f, 1f),
+                new Vector2(column, -186f), new Vector2(380f, 74f), 30f, "ROOM CODE", Cyan);
+
+            refs.Join = CreateNeonButton(c, "JoinButton", "JOIN ROOM", _heading, 26f,
+                new Vector2(0.5f, 1f), new Vector2(column, -272f), new Vector2(380f, 78f),
+                Cyan, Coral, Ink);
+
+            // --- roster --------------------------------------------------------
+            CreateText(c, "PlayersHeader", _bodyLight, SmallSize, TextAlignmentOptions.Center,
+                new Vector2(0.5f, 1f), new Vector2(0f, -344f), new Vector2(600f, 24f),
+                "IN THE ROOM", InkFaint).characterSpacing = 8f;
+
+            RectTransform roster = CreateColumn(c, "PlayerRows", new Vector2(0.5f, 1f),
+                new Vector2(0f, -430f), new Vector2(700f, 140f), 6f);
+
+            for (int i = 0; i < SeatRoster.SeatCount; i++)
+            {
+                refs.PlayerRows[i] = CreateText(roster, $"PlayerRow{i}", _body, 21f,
+                    TextAlignmentOptions.Center, Vector2.zero, Vector2.zero, new Vector2(700f, 28f),
+                    $"Seat {i + 1} - empty", InkDim);
+
+                refs.PlayerRows[i].overflowMode = TextOverflowModes.Ellipsis;
+                SetLayoutSize(refs.PlayerRows[i].rectTransform, 700f, 28f);
+            }
+
+            refs.Status = CreateText(c, "Status", _bodyLight, 17f, TextAlignmentOptions.Center,
+                new Vector2(0.5f, 0f), new Vector2(0f, 172f), new Vector2(880f, 26f),
+                "Host a room, or type a friend's code.", InkDim);
+
+            // --- actions -------------------------------------------------------
+            refs.Start = CreateNeonButton(c, "StartButton", "START GAME", _display, 34f,
+                new Vector2(0.5f, 0f), new Vector2(0f, 96f), new Vector2(460f, 84f),
+                Green, Green, Color.white, new Color(Green.r, Green.g, Green.b, 0.22f));
+            refs.StartLabel = refs.Start.Label;
+
+            refs.Leave = CreateNeonButton(c, "LeaveButton", "Leave room", _body, BodySize,
+                new Vector2(1f, 0f), new Vector2(-150f, 44f), new Vector2(220f, 54f),
+                Coral, Coral, InkDim);
+
+            refs.Back = CreateNeonButton(c, "BackButton", "Back", _body, BodySize,
+                new Vector2(0f, 0f), new Vector2(130f, 44f), new Vector2(180f, 54f),
+                InkFaint, InkFaint, InkDim);
+
+            return refs;
+        }
+
+        private static void WireMultiplayer(MultiplayerPanelController controller, Context context,
+                                             MainMenuController menu, MultiplayerScreen refs)
+        {
+            using var so = new SerializedWiring(controller);
+
+            so.Ref("rooms", context.Rooms);
+            so.Ref("networkMatch", context.Net);
+            so.Ref("flowController", context.Flow);
+            so.Ref("matchController", context.Match);
+            so.Ref("mainMenu", menu);
+            so.Ref("palette", context.Palette);
+
+            so.Ref("panel", refs.Group);
+            so.Ref("hostButton", refs.Host.Button);
+            so.Ref("roomCodeLabel", refs.RoomCode);
+            so.Ref("codeInput", refs.CodeInput);
+            so.Ref("joinButton", refs.Join.Button);
+            so.Ref("statusLabel", refs.Status);
+            so.Ref("startButton", refs.Start.Button);
+            so.Ref("startLabel", refs.StartLabel);
+            so.Ref("leaveButton", refs.Leave.Button);
+            so.Ref("backButton", refs.Back.Button);
+
+            so.ArraySize("playerRows", SeatRoster.SeatCount);
+            for (int i = 0; i < SeatRoster.SeatCount; i++)
+                so.Ref($"playerRows.Array.data[{i}]", refs.PlayerRows[i]);
         }
 
         // ==================================================================== lobby
@@ -992,6 +1130,10 @@ namespace Triggle.EditorTools
                 refs.PhraseEmotes[i] = emote;
             }
 
+            // The tab and the panel are alternatives, and ChatPanelController only picks one at runtime.
+            // Left on in the saved scene they sit on top of each other.
+            card.Root.gameObject.SetActive(false);
+
             return refs;
         }
 
@@ -1028,8 +1170,11 @@ namespace Triggle.EditorTools
                 new Vector2(1f, 1f), new Vector2(-100f, -62f), new Vector2(72f, 72f),
                 Cyan, Coral, Ink);
 
+            // Centred under the title chip, not tucked under the round counter: the top-right player
+            // card reaches up to y=-94, so anything on the right below that sits on top of it. The
+            // centre column is clear, because the cards are inset from both edges.
             hud.MovesLabel = CreateText(panel, "MovesRemaining", _bodyLight, 17f,
-                TextAlignmentOptions.Right, new Vector2(1f, 1f), new Vector2(-240f, -118f),
+                TextAlignmentOptions.Center, new Vector2(0.5f, 1f), new Vector2(0f, -134f),
                 new Vector2(400f, 26f), "48 bands left", InkFaint);
 
             // --- four corner player cards -------------------------------------
@@ -1360,7 +1505,9 @@ namespace Triggle.EditorTools
 
         private static void WireMenu(MainMenuController controller, Context context,
                                       LobbyController lobby, SettingsPanelController settings,
-                                      RootMenu root, Lobby lobbyRefs, HowToPlay howTo, Hud hud)
+                                      MultiplayerPanelController multiplayerController,
+                                      RootMenu root, Lobby lobbyRefs, HowToPlay howTo,
+                                      MultiplayerScreen multiplayerRefs, Hud hud)
         {
             using var so = new SerializedWiring(controller);
 
@@ -1372,10 +1519,13 @@ namespace Triggle.EditorTools
             so.Ref("rootMenuPanel", root.Group);
             so.Ref("lobbyPanel", lobbyRefs.Group);
             so.Ref("howToPlayPanel", howTo.Group);
+            so.Ref("multiplayerPanel", multiplayerRefs.Group);
+            so.Ref("multiplayer", multiplayerController);
             so.Ref("hudPanel", hud.Group);
 
             so.Ref("playLocalButton", root.PlayLocal.Button);
             so.Ref("playAiButton", root.PlayAi.Button);
+            so.Ref("playOnlineButton", root.PlayOnline.Button);
             so.Ref("howToPlayButton", root.HowToPlay.Button);
             so.Ref("settingsButton", root.Settings.Button);
             so.Ref("quitButton", root.Quit.Button);

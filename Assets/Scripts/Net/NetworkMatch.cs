@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using Triggle.Core;
 using Triggle.Gameplay;
 using UnityEngine;
@@ -35,6 +36,8 @@ namespace Triggle.Net
         private ISessionTransport _transport;
         private int _movesApplied;
         private bool _desynced;
+        private bool _announced;
+        private string _localName = "Player";
 
         /// <summary>The seat this device plays. Zero when there is no session.</summary>
         public int LocalSeat => _transport?.LocalSeat ?? 0;
@@ -50,6 +53,30 @@ namespace Triggle.Net
 
         /// <summary>Raised when the boards diverge, with a player-facing explanation.</summary>
         public event Action<string> Desynced;
+
+        /// <summary>Raised whenever a player joins or leaves the room.</summary>
+        public event Action RosterChanged;
+
+        /// <summary>
+        /// Raised on a guest when the host starts the match, after settings have been applied. The
+        /// front end uses this to leave the menu, since the guest never pressed anything.
+        /// </summary>
+        public event Action MatchStartedByHost;
+
+        /// <summary>Who is in the room, keyed by seat. Includes this device.</summary>
+        private readonly SortedDictionary<int, string> _roster = new SortedDictionary<int, string>();
+
+        /// <summary>Seats currently in the room, lowest first.</summary>
+        public IEnumerable<int> Seats => _roster.Keys;
+
+        /// <summary>How many players are in the room, including this device.</summary>
+        public int PlayerCount => _roster.Count;
+
+        /// <summary>The name a seat announced, or a fallback.</summary>
+        public string NameOfSeat(int seat) =>
+            _roster.TryGetValue(seat, out string name) && !string.IsNullOrEmpty(name)
+                ? name
+                : $"Player {seat}";
 
         private void Awake()
         {
@@ -76,7 +103,8 @@ namespace Triggle.Net
         // ------------------------------------------------------------------ session
 
         /// <summary>Takes ownership of a connected transport and starts relaying.</summary>
-        public void Join(ISessionTransport transport)
+        /// <param name="localName">Name this device announces to the others.</param>
+        public void Join(ISessionTransport transport, string localName)
         {
             Leave();
 
@@ -84,8 +112,41 @@ namespace Triggle.Net
             if (_transport == null) return;
 
             _transport.MessageReceived += HandleMessage;
+            _transport.StateChanged += HandleStateChanged;
+
             _movesApplied = 0;
             _desynced = false;
+            _announced = false;
+            _localName = localName;
+
+            _roster.Clear();
+            _roster[_transport.LocalSeat] = localName;
+            RosterChanged?.Invoke();
+
+            // The host is already connected the moment it starts listening; a guest is not, so its
+            // announcement waits for the transport to say so.
+            if (_transport.State == SessionStatus.Connected) Announce();
+        }
+
+        private void HandleStateChanged(SessionStatus status)
+        {
+            if (status == SessionStatus.Connected) Announce();
+        }
+
+        /// <summary>
+        /// Tells the other players who is at this seat.
+        /// </summary>
+        /// <remarks>
+        /// Sent once per session rather than on every connect event, because the host raises Connected
+        /// again for each guest that arrives and re-announcing would spam the room.
+        /// </remarks>
+        private void Announce()
+        {
+            if (_announced || _transport == null) return;
+
+            _announced = true;
+            _transport.Send(NetMessage.Hello(_transport.LocalSeat, _localName,
+                                             PlayerProfiles.GetColorIndex((PlayerId)_transport.LocalSeat)));
         }
 
         /// <summary>Ends the session and disposes the transport.</summary>
@@ -94,8 +155,12 @@ namespace Triggle.Net
             if (_transport == null) return;
 
             _transport.MessageReceived -= HandleMessage;
+            _transport.StateChanged -= HandleStateChanged;
             _transport.Dispose();
             _transport = null;
+
+            _roster.Clear();
+            RosterChanged?.Invoke();
         }
 
         /// <summary>
@@ -183,6 +248,10 @@ namespace Triggle.Net
                     if (matchController != null) matchController.ContinueToNextRound();
                     break;
 
+                case NetMessageKind.Hello:
+                    ApplyHello(message);
+                    break;
+
                 case NetMessageKind.StartMatch:
                     ApplyMatchSettings(message);
                     break;
@@ -211,6 +280,36 @@ namespace Triggle.Net
             Desync($"Seat {message.Seat} played band #{message.A}, which is not legal on this board.");
         }
 
+        /// <summary>
+        /// Records another player's arrival, and answers so they learn about this device too.
+        /// </summary>
+        /// <remarks>
+        /// The reply is the only way a guest finds out who else is already in the room: Relay has no
+        /// roster, and each guest announces itself only once. Guarded on the seat being new, or two
+        /// peers would answer each other forever.
+        /// </remarks>
+        private void ApplyHello(NetMessage message)
+        {
+            if (message.A != NetMessage.ProtocolVersion)
+            {
+                Desync($"Seat {message.Seat} is running a different version of the game " +
+                       $"(protocol {message.A}, this build speaks {NetMessage.ProtocolVersion}).");
+                return;
+            }
+
+            if (message.Seat <= 0 || message.Seat > SeatRoster.SeatCount) return;
+            if (_roster.ContainsKey(message.Seat)) return;
+
+            _roster[message.Seat] = message.Text;
+            RosterChanged?.Invoke();
+
+            Log($"seat {message.Seat} joined as \"{message.Text}\" ({_roster.Count} in room)");
+
+            if (_transport != null)
+                _transport.Send(NetMessage.Hello(_transport.LocalSeat, _localName,
+                                                 PlayerProfiles.GetColorIndex((PlayerId)_transport.LocalSeat)));
+        }
+
         private void ApplyMatchSettings(NetMessage message)
         {
             // The host owns the rules. Applying them before the board is built is what makes both
@@ -221,6 +320,32 @@ namespace Triggle.Net
             if (matchController != null) matchController.ConfigureRounds(message.D);
 
             Log($"match settings: radius {message.A}, {message.C} players, {message.D} rounds");
+
+            // The guest never pressed anything, so this is what actually begins its match. Seats are
+            // assigned first: whichever seat is this device's is the only one that takes input.
+            ApplySeatOwnership(message.C);
+
+            if (matchController != null) matchController.StartMatch();
+            else if (flowController != null) flowController.StartNewGame();
+
+            MatchStartedByHost?.Invoke();
+        }
+
+        /// <summary>
+        /// Marks this device's seat as the only one that accepts input; the rest belong to other people.
+        /// </summary>
+        public void ApplySeatOwnership(int playerCount)
+        {
+            int local = LocalSeat;
+
+            for (int seat = 1; seat <= SeatRoster.SeatCount; seat++)
+            {
+                var player = (PlayerId)seat;
+
+                if (seat > playerCount) { SeatRoster.SetKind(player, SeatKind.Human); continue; }
+
+                SeatRoster.SetKind(player, seat == local ? SeatKind.Human : SeatKind.Remote);
+            }
         }
 
         private void Desync(string reason)

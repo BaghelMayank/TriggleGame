@@ -697,6 +697,7 @@ namespace Triggle.EditorTools
                 Flow = flow,
                 Match = match,
                 Net = net,
+                Rooms = rooms,
                 Palette = assets.Palette,
                 Themes = themeLibrary,
                 Gradient = _gradientSprite,

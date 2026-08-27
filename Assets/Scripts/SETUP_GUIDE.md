@@ -534,6 +534,32 @@ to click".
 `NetworkMatch` broadcasts from `GameEvents.OnBandPlaced` rather than from the input layer, so every path
 that can place a band is covered — mouse, touch, and the AI when a computer seat shares the device.
 
+### Playing online
+
+`Play Online` on the root menu opens the room screen. **Create Room** allocates a Relay endpoint and
+shows a six-character code; **Join Room** takes someone else's. The roster fills in as players arrive,
+and only the host's START is enabled, and only once someone else is in the room.
+
+The host's start sequence is the one piece of ordering that matters:
+
+```
+BroadcastMatchSettings(radius, pegsPerBand, players, rounds)   // rules go out first
+ApplySeatOwnership(players)                                    // my seat is mine, the rest are Remote
+StartMatch()                                                   // now build the board
+```
+
+Radius and band length decide the band catalogue, and a move is an index into it — so the settings must
+be on the wire *before* any board is generated. Start first and the guests build a different lattice, and
+every move index afterwards lands on the wrong triangles. Guests never press anything: `NetworkMatch`
+applies the settings, starts their match and raises `MatchStartedByHost`, which is what leaves the menu.
+
+Seats come from position in the lobby roster, so every device derives the same running order from the
+same list. `SeatKind.Remote` marks the seats that belong to other people; board input is gated on
+`SeatRoster.IsLocalHuman`, so a remote seat is as unclickable as a CPU one.
+
+**Requires Unity Cloud services.** Relay and Lobby must be enabled on the dashboard for the linked
+project. A local or vs-AI match never signs in and never touches the network.
+
 ### Chat
 
 A slim tab on the left edge of the HUD opens a message log and a grid of six quick-chat phrases, each
@@ -648,6 +674,15 @@ too small, so a degenerate setup can't pass unnoticed. **Radius 3 is the minimum
   over: **clipping** with every hidden child force-shown, so seat rows 3–4 and the difficulty stepper
   are measured too, and **reachability** with authored visibility, so "what is on top of this button"
   means something. **0 clipped, 0 blocked.**
+
+  A third pass checks **overlap**: two controls both fully inside the safe area, neither covering the
+  other's centre, but visibly colliding. Adding a sixth button to the main menu pushed the column into
+  the tagline exactly that way and both other passes stayed green. It measures TMP's *rendered glyph*
+  bounds rather than rects — a left-aligned score sits in a 300-unit box holding one character — and
+  ignores labels stacked as siblings, since deliberate stacks (the three offset copies of TRIGGLE, an
+  input field's placeholder over its text) are authored that way while accidents span different
+  branches. It found two real faults on its first run: the chat panel left active in the saved scene,
+  and the bands-left label sitting on the top-right player card.
 
   The reachability half exists because containment alone is not enough — an earlier version measured
   only rectangles, reported zero violations, and passed a build whose scrim swallowed every tap.

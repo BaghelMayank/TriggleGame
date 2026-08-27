@@ -3,11 +3,20 @@ using UnityEngine;
 
 namespace Triggle.Core
 {
-    /// <summary>Who sits in a seat: a person at the keyboard, or the computer.</summary>
+    /// <summary>Who plays a seat.</summary>
     public enum SeatKind
     {
+        /// <summary>A person on this device. The only kind that accepts board input.</summary>
         Human = 0,
-        Computer = 1
+
+        /// <summary>The computer on this device.</summary>
+        Computer = 1,
+
+        /// <summary>
+        /// A person on another device. Their moves arrive over the network, so this device must not
+        /// take input for the seat - but nor should anything try to play it locally.
+        /// </summary>
+        Remote = 2
     }
 
     /// <summary>How hard the computer plays. See <c>BandEvaluator</c> for what each level actually does.</summary>
@@ -107,8 +116,17 @@ namespace Triggle.Core
             return Kinds[SeatIndex(player)];
         }
 
-        /// <summary>True when the computer plays this seat.</summary>
+        /// <summary>True when the computer on this device plays this seat.</summary>
         public static bool IsComputer(PlayerId player) => GetKind(player) == SeatKind.Computer;
+
+        /// <summary>True when this seat belongs to a player on another device.</summary>
+        public static bool IsRemote(PlayerId player) => GetKind(player) == SeatKind.Remote;
+
+        /// <summary>
+        /// True when a person at this device plays this seat. The single condition under which board
+        /// input is accepted - a computer seat and a remote seat are both "not yours to click".
+        /// </summary>
+        public static bool IsLocalHuman(PlayerId player) => GetKind(player) == SeatKind.Human;
 
         public static void SetKind(PlayerId player, SeatKind kind)
         {
@@ -197,11 +215,15 @@ namespace Triggle.Core
         }
 
         /// <summary>
-        /// Appends a "(CPU)" tag to a computer seat's name, so the HUD and standings show at a glance
-        /// which scores are yours. Human seats are returned untouched.
+        /// Tags a seat that is not yours, so the HUD and standings show at a glance which score to
+        /// follow. Local human seats are returned untouched.
         /// </summary>
-        public static string Decorate(PlayerId player, string baseName) =>
-            IsComputer(player) ? baseName + " (CPU)" : baseName;
+        public static string Decorate(PlayerId player, string baseName) => GetKind(player) switch
+        {
+            SeatKind.Computer => baseName + " (CPU)",
+            SeatKind.Remote => baseName,   // a real person; their own name is already the label
+            _ => baseName
+        };
 
         private static int SeatIndex(PlayerId player) =>
             Mathf.Clamp((int)player - 1, 0, SeatCount - 1);

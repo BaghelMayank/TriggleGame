@@ -57,17 +57,18 @@ namespace Triggle.Gameplay
         /// </summary>
         public bool IsPaused { get; private set; }
 
-        /// <summary>True when the seat on the clock is played by the computer rather than a person.</summary>
-        public bool IsCurrentSeatAutomated => State != null && SeatRoster.IsComputer(State.CurrentPlayer);
+        /// <summary>True when a person at this device plays the seat on the clock.</summary>
+        public bool IsCurrentSeatLocal => State != null && SeatRoster.IsLocalHuman(State.CurrentPlayer);
 
         /// <summary>
-        /// True while peg clicks should be accepted. A computer seat closes this without changing the
-        /// phase, so <see cref="AiController"/> can still submit through
-        /// <see cref="SubmitBandSelection"/> - which gates on the phase alone - while the pointer is
-        /// locked out.
+        /// True while peg clicks should be accepted. A seat that is not yours - the computer's, or a
+        /// player on another device - closes this without changing the phase, so
+        /// <see cref="AiController"/> and the network layer can still submit through
+        /// <see cref="SubmitBandSelection"/> and <see cref="SubmitBandById"/>, which gate on the phase
+        /// alone, while the pointer stays locked out.
         /// </summary>
         public bool AcceptsInput =>
-            State != null && State.AcceptsInput && !IsPaused && !IsCurrentSeatAutomated;
+            State != null && State.AcceptsInput && !IsPaused && IsCurrentSeatLocal;
 
         /// <summary>
         /// Pauses or resumes. Deliberately does not touch the state machine or stop the resolve
@@ -183,6 +184,49 @@ namespace Triggle.Gameplay
             State.Phase = GamePhase.ValidatingMove;
 
             if (!Validator.TryResolveBand(selection, out BandPlacement band, out string reason))
+            {
+                GameEvents.RaiseInvalidMove(reason);
+                State.Phase = GamePhase.WaitingForInput;
+                return false;
+            }
+
+            _moveRoutine = StartCoroutine(ResolveMoveRoutine(band));
+            return true;
+        }
+
+        /// <summary>
+        /// Plays a band by its index in the board's catalogue. This is how a move arrives from another
+        /// device, and how the AI could submit one too.
+        /// </summary>
+        /// <remarks>
+        /// The catalogue is a pure function of radius and band length, generated in a fixed order, so
+        /// index 47 is the same three edges on every device in the match. That is what lets a whole turn
+        /// travel as one integer instead of four peg coordinates - and why the index is validated here
+        /// rather than trusted: it arrives from another machine.
+        /// </remarks>
+        /// <returns>True when the move was accepted and is now resolving.</returns>
+        public bool SubmitBandById(int bandId)
+        {
+            if (State == null || Validator == null || board == null) return false;
+
+            if (!State.AcceptsInput)
+            {
+                GameEvents.RaiseInvalidMove("Not your moment - the board is still resolving.");
+                return false;
+            }
+
+            IReadOnlyList<BandPlacement> bands = board.Bands;
+            if (bandId < 0 || bandId >= bands.Count)
+            {
+                Debug.LogError($"[Triggle] Band {bandId} is outside this board's catalogue of " +
+                               $"{bands.Count}. The two devices are not playing the same board.", this);
+                return false;
+            }
+
+            State.Phase = GamePhase.ValidatingMove;
+
+            BandPlacement band = bands[bandId];
+            if (!Validator.IsBandLegal(band, out string reason))
             {
                 GameEvents.RaiseInvalidMove(reason);
                 State.Phase = GamePhase.WaitingForInput;

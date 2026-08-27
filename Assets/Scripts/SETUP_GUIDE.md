@@ -501,6 +501,59 @@ setting at all: the player changes it, loses anyway, and concludes the game is b
 
 ---
 
+## 6d. Multiplayer spine
+
+Three files under `Assets/Scripts/Net/`, plus one method on the flow controller. No packages, no service
+account, no sockets yet — this is the layer everything else will sit on.
+
+**A turn is one integer.** `BoardManager` enumerates every legal band once at build time, so a move is
+an index into that catalogue rather than four peg coordinates. The catalogue is a pure function of
+radius and band length, generated in a fixed order, so index 47 is the same three edges on every device.
+Both sides then run their own deterministic rules engine over the same index sequence — there is no
+state replication, no authority server and nothing to reconcile. **19 bytes per move.**
+
+| File | Role |
+|---|---|
+| `NetMessage.cs` | The wire format. Six message kinds, hand-serialised so the transport can be swapped without touching the protocol. |
+| `ISessionTransport.cs` | The seam. "Ship these bytes, tell me when bytes arrive" — and nothing else. |
+| `LoopbackTransport.cs` | In-process peers. Runs the whole path headlessly, and is the reference implementation. |
+| `NetworkMatch.cs` | Binds transport to `GameFlowController`: broadcasts local moves, applies remote ones. |
+
+`GameFlowController.SubmitBandById` is the entry point a remote move uses. It validates the index rather
+than trusting it — the value arrives from another machine.
+
+`SeatKind` gained **`Remote`**, and board input is now gated on `SeatRoster.IsLocalHuman` rather than
+"not a computer": a computer seat and a seat belonging to a player on another device are both "not yours
+to click".
+
+> **The one unrecoverable failure.** A lost, duplicated or reordered `PlaceBand` diverges the two boards
+> and neither side can tell — it looks like a working game until the scores disagree. So the transport
+> must provide a reliable ordered channel, and `NetworkMatch` checks the move number in every packet as
+> a tripwire on that promise. It is not a repair mechanism; on mismatch the match stops and says so.
+
+`NetworkMatch` broadcasts from `GameEvents.OnBandPlaced` rather than from the input layer, so every path
+that can place a band is covered — mouse, touch, and the AI when a computer seat shares the device.
+
+### Verification
+
+`Tools ▸ Triggle ▸ Verify Multiplayer Spine`, with no transport and no network:
+
+| Check | Result |
+|---|---|
+| Wire format round-trip | 6/6 message kinds unchanged |
+| Malformed packets (null, empty, truncated, garbage) | 5/5 refused without throwing |
+| Loopback ordering | 8/8 in order, none echoed to the sender |
+| Catalogue determinism (R=3/4/5) | Hash identical across independent boards and rebuilds |
+| Replay convergence | **11,930 moves over 120 games, boards identical every time** |
+
+Corrupting the relayed index by one reproduces **80 mismatches per radius**, so the convergence check is
+known to detect divergence rather than merely to pass.
+
+**Not covered:** `NetworkMatch` itself. It drives `GameFlowController`, whose move resolution is a
+coroutine, and coroutines do not run in edit mode — that binding needs a play-mode test.
+
+---
+
 ## 7. Play, and read the gizmos
 
 Press **Play**. The main menu comes up first. **Play Local** for hot-seat, **Play vs AI** to face the

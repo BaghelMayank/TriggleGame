@@ -57,6 +57,17 @@ namespace Triggle.UI
         [Tooltip("Rounds the host sets for an online match.")]
         [SerializeField, Range(MatchState.MinRounds, MatchState.MaxRounds)] private int roundCount = 1;
 
+        [SerializeField] private Button roundsDownButton;
+        [SerializeField] private Button roundsUpButton;
+        [SerializeField] private TMP_Text roundsValueLabel;
+
+        [SerializeField] private Button sizeDownButton;
+        [SerializeField] private Button sizeUpButton;
+        [SerializeField] private TMP_Text sizeValueLabel;
+
+        [Tooltip("Explains that the guests do not get a say in either.")]
+        [SerializeField] private TMP_Text rulesCaptionLabel;
+
         [Header("Appearance")]
         [SerializeField] private Color infoColor = new Color(0.62f, 0.68f, 0.78f);
         [SerializeField] private Color errorColor = new Color(0.98f, 0.45f, 0.42f);
@@ -81,6 +92,11 @@ namespace Triggle.UI
             if (backButton != null) backButton.onClick.AddListener(() => _ = BackAsync());
 
             if (codeInput != null) codeInput.characterLimit = 6;
+
+            if (roundsDownButton != null) roundsDownButton.onClick.AddListener(() => StepRounds(-1));
+            if (roundsUpButton != null) roundsUpButton.onClick.AddListener(() => StepRounds(+1));
+            if (sizeDownButton != null) sizeDownButton.onClick.AddListener(() => StepBoardSize(-1));
+            if (sizeUpButton != null) sizeUpButton.onClick.AddListener(() => StepBoardSize(+1));
 
             if (nameInput != null)
             {
@@ -114,6 +130,10 @@ namespace Triggle.UI
             if (leaveButton != null) leaveButton.onClick.RemoveAllListeners();
             if (backButton != null) backButton.onClick.RemoveAllListeners();
             if (nameInput != null) nameInput.onEndEdit.RemoveAllListeners();
+            if (roundsDownButton != null) roundsDownButton.onClick.RemoveAllListeners();
+            if (roundsUpButton != null) roundsUpButton.onClick.RemoveAllListeners();
+            if (sizeDownButton != null) sizeDownButton.onClick.RemoveAllListeners();
+            if (sizeUpButton != null) sizeUpButton.onClick.RemoveAllListeners();
         }
 
         private void OnEnable()
@@ -252,6 +272,64 @@ namespace Triggle.UI
             Refresh();
         }
 
+        // ------------------------------------------------------------------ rules
+
+        private void StepRounds(int delta)
+        {
+            roundCount = Mathf.Clamp(roundCount + delta, MatchState.MinRounds, MatchState.MaxRounds);
+            Refresh();
+        }
+
+        /// <summary>
+        /// Changes the board size for the match.
+        /// </summary>
+        /// <remarks>
+        /// Writes the same preference the Settings screen does, deliberately. The flow controller reads
+        /// the radius from there when it builds a board, and a guest applies the host's value to the
+        /// same place - so keeping one source of truth is what makes both devices generate an identical
+        /// lattice. It does mean changing the board here also changes it for your local games.
+        /// </remarks>
+        private void StepBoardSize(int delta)
+        {
+            TrigglePrefs.BoardRadius += delta;
+            Refresh();
+        }
+
+        private void RefreshRules()
+        {
+            bool isHost = rooms != null && rooms.IsHost;
+
+            // Only the host's values are used - it broadcasts them and every guest overwrites its own -
+            // so a guest is shown them read-only rather than being allowed to set something inert.
+            bool editable = isHost && !_busy;
+
+            int radius = TrigglePrefs.BoardRadius;
+
+            if (roundsValueLabel != null)
+                roundsValueLabel.text = roundCount.ToString();
+
+            if (sizeValueLabel != null)
+                sizeValueLabel.text = radius.ToString();
+
+            if (roundsDownButton != null)
+                roundsDownButton.interactable = editable && roundCount > MatchState.MinRounds;
+
+            if (roundsUpButton != null)
+                roundsUpButton.interactable = editable && roundCount < MatchState.MaxRounds;
+
+            if (sizeDownButton != null)
+                sizeDownButton.interactable = editable && radius > TrigglePrefs.MinBoardRadius;
+
+            if (sizeUpButton != null)
+                sizeUpButton.interactable = editable && radius < TrigglePrefs.MaxBoardRadius;
+
+            if (rulesCaptionLabel == null) return;
+
+            rulesCaptionLabel.text = isHost
+                ? (roundCount == 1 ? "Single round" : $"Best of {roundCount}")
+                : "The host chooses the rounds and board size.";
+        }
+
         private string Occupancy()
         {
             int count = networkMatch != null ? networkMatch.PlayerCount : 0;
@@ -343,6 +421,8 @@ namespace Triggle.UI
                 startLabel.text = isHost ? "START GAME" : "HOST STARTS";
 
             if (occupancyLabel != null) occupancyLabel.text = $"IN THE ROOM  -  {Occupancy()}";
+
+            RefreshRules();
 
             RefreshPlayerRows(count);
         }

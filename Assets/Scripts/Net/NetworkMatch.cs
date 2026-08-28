@@ -85,6 +85,23 @@ namespace Triggle.Net
         /// <summary>How many players are in the room, including this device.</summary>
         public int PlayerCount => _roster.Count;
 
+        /// <summary>
+        /// The name a seat announced over the network, when there is one.
+        /// </summary>
+        /// <remarks>
+        /// The HUD must ask this rather than reading <see cref="PlayerProfiles"/>, which holds the names
+        /// typed into <i>this</i> device's hot-seat lobby. Those describe whoever is sharing this phone
+        /// and say nothing about the person on the other end of a Relay session - reading them online
+        /// showed every remote player under a local name or a colour.
+        /// </remarks>
+        public bool TryGetSeatName(int seat, out string name)
+        {
+            name = null;
+            if (!IsOnline) return false;
+
+            return _roster.TryGetValue(seat, out name) && !string.IsNullOrEmpty(name);
+        }
+
         /// <summary>The name a seat announced, or a fallback.</summary>
         public string NameOfSeat(int seat) =>
             _roster.TryGetValue(seat, out string name) && !string.IsNullOrEmpty(name)

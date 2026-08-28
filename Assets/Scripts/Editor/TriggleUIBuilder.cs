@@ -389,6 +389,8 @@ namespace Triggle.EditorTools
         {
             public CanvasGroup Group;
             public Neon Host, Join, Start, Leave, Back;
+            public Neon RoundsDown, RoundsUp, SizeDown, SizeUp;
+            public TMP_Text RoundsValue, SizeValue, RulesCaption;
             public TMP_Text RoomCode, Status, StartLabel, Occupancy;
             public TMP_InputField CodeInput, NameInput;
             public TMP_Text[] PlayerRows = new TMP_Text[SeatRoster.SeatCount];
@@ -401,7 +403,7 @@ namespace Triggle.EditorTools
             AddScrim(panel, Scrim);
 
             Neon card = CreateNeon(panel, "Card", new Vector2(0.5f, 0.5f), Vector2.zero,
-                new Vector2(1000f, 860f), CardFill, Cyan, Coral, false, 0.35f);
+                new Vector2(1000f, 940f), CardFill, Cyan, Coral, false, 0.35f);
             RectTransform c = card.Root;
 
             Neon header = CreateNeon(c, "HeaderChip", new Vector2(0.5f, 1f), new Vector2(0f, 8f),
@@ -467,8 +469,52 @@ namespace Triggle.EditorTools
                 SetLayoutSize(refs.PlayerRows[i].rectTransform, 700f, 26f);
             }
 
+            // --- rules, host only ----------------------------------------------
+            const float rulesY = -628f;
+            const float rulesHeaderY = -578f;
+
+            CreateText(c, "RoundsHeader", _bodyLight, 15f, TextAlignmentOptions.Center,
+                new Vector2(0.5f, 1f), new Vector2(-column, rulesHeaderY), new Vector2(380f, 22f),
+                "ROUNDS", InkFaint).characterSpacing = 6f;
+
+            refs.RoundsDown = CreateNeonButton(c, "RoundsDown", "-", _heading, 24f,
+                new Vector2(0.5f, 1f), new Vector2(-column - 118f, rulesY), new Vector2(60f, 54f),
+                Cyan, Coral, Ink);
+
+            Neon roundsBox = CreateNeon(c, "RoundsBox", new Vector2(0.5f, 1f),
+                new Vector2(-column, rulesY), new Vector2(150f, 54f), SurfaceFill, Cyan, Cyan);
+            refs.RoundsValue = CreateText(roundsBox.Root, "RoundsValue", _heading, 24f,
+                TextAlignmentOptions.Center, new Vector2(0.5f, 0.5f), Vector2.zero,
+                new Vector2(150f, 36f), "1", Ink);
+
+            refs.RoundsUp = CreateNeonButton(c, "RoundsUp", "+", _heading, 24f,
+                new Vector2(0.5f, 1f), new Vector2(-column + 118f, rulesY), new Vector2(60f, 54f),
+                Cyan, Coral, Ink);
+
+            CreateText(c, "SizeHeader", _bodyLight, 15f, TextAlignmentOptions.Center,
+                new Vector2(0.5f, 1f), new Vector2(column, rulesHeaderY), new Vector2(380f, 22f),
+                "BOARD SIZE", InkFaint).characterSpacing = 6f;
+
+            refs.SizeDown = CreateNeonButton(c, "SizeDown", "-", _heading, 24f,
+                new Vector2(0.5f, 1f), new Vector2(column - 118f, rulesY), new Vector2(60f, 54f),
+                Cyan, Coral, Ink);
+
+            Neon sizeBox = CreateNeon(c, "SizeBox", new Vector2(0.5f, 1f),
+                new Vector2(column, rulesY), new Vector2(150f, 54f), SurfaceFill, Cyan, Cyan);
+            refs.SizeValue = CreateText(sizeBox.Root, "SizeValue", _heading, 24f,
+                TextAlignmentOptions.Center, new Vector2(0.5f, 0.5f), Vector2.zero,
+                new Vector2(150f, 36f), "3", Ink);
+
+            refs.SizeUp = CreateNeonButton(c, "SizeUp", "+", _heading, 24f,
+                new Vector2(0.5f, 1f), new Vector2(column + 118f, rulesY), new Vector2(60f, 54f),
+                Cyan, Coral, Ink);
+
+            refs.RulesCaption = CreateText(c, "RulesCaption", _bodyLight, 15f,
+                TextAlignmentOptions.Center, new Vector2(0.5f, 1f), new Vector2(0f, -684f),
+                new Vector2(880f, 22f), "Single round", InkFaint);
+
             refs.Status = CreateText(c, "Status", _bodyLight, 17f, TextAlignmentOptions.Center,
-                new Vector2(0.5f, 0f), new Vector2(0f, 172f), new Vector2(880f, 26f),
+                new Vector2(0.5f, 0f), new Vector2(0f, 148f), new Vector2(880f, 26f),
                 "Host a room, or type a friend's code.", InkDim);
 
             // --- actions -------------------------------------------------------
@@ -508,6 +554,14 @@ namespace Triggle.EditorTools
             so.Ref("statusLabel", refs.Status);
             so.Ref("occupancyLabel", refs.Occupancy);
             so.Ref("nameInput", refs.NameInput);
+
+            so.Ref("roundsDownButton", refs.RoundsDown.Button);
+            so.Ref("roundsUpButton", refs.RoundsUp.Button);
+            so.Ref("roundsValueLabel", refs.RoundsValue);
+            so.Ref("sizeDownButton", refs.SizeDown.Button);
+            so.Ref("sizeUpButton", refs.SizeUp.Button);
+            so.Ref("sizeValueLabel", refs.SizeValue);
+            so.Ref("rulesCaptionLabel", refs.RulesCaption);
             so.Ref("startButton", refs.Start.Button);
             so.Ref("startLabel", refs.StartLabel);
             so.Ref("leaveButton", refs.Leave.Button);
@@ -1665,6 +1719,7 @@ namespace Triggle.EditorTools
             so.Ref("flowController", context.Flow);
             so.Ref("matchController", context.Match);
             so.Ref("palette", context.Palette);
+            so.Ref("networkMatch", context.Net);
             so.Ref("mainMenu", menu);
 
             so.Ref("turnLabel", hud.TurnLabel);

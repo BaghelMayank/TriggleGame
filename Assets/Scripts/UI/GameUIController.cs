@@ -4,6 +4,7 @@ using System.Collections.Generic;
 using System.Text;
 using Triggle.Core;
 using Triggle.Gameplay;
+using Triggle.Net;
 using TMPro;
 using UnityEngine;
 using UnityEngine.UI;
@@ -52,6 +53,9 @@ namespace Triggle.UI
         [SerializeField] private GameFlowController flowController;
         [SerializeField] private MatchController matchController;
         [SerializeField] private PlayerColorPalette palette;
+
+        [Tooltip("Supplies the names remote players chose. Optional - absent in a local-only scene.")]
+        [SerializeField] private NetworkMatch networkMatch;
         [SerializeField] private MainMenuController mainMenu;
 
         [Header("Turn Indicator")]
@@ -119,6 +123,7 @@ namespace Triggle.UI
             if (matchController == null) matchController = FindObjectOfType<MatchController>();
             if (palette == null) palette = PlayerColorPalette.Fallback;
             if (mainMenu == null) mainMenu = FindObjectOfType<MainMenuController>();
+            if (networkMatch == null) networkMatch = FindObjectOfType<NetworkMatch>();
 
             if (rematchButton != null) rematchButton.onClick.AddListener(HandleRematchClicked);
             if (matchMenuButton != null) matchMenuButton.onClick.AddListener(HandleMenuClicked);
@@ -165,10 +170,22 @@ namespace Triggle.UI
         /// always shown as their colour plus a "(CPU)" tag, so the scoreboard makes it obvious at a
         /// glance which of the totals is yours.
         /// </summary>
-        private string NameOf(PlayerId player) =>
-            SeatRoster.IsComputer(player)
+        /// <remarks>
+        /// Online, the name comes from the room roster - what that player called themselves on their own
+        /// device. <see cref="PlayerProfiles"/> holds the names typed into <i>this</i> device's hot-seat
+        /// lobby, which describe whoever is sharing this phone and have nothing to do with the person on
+        /// the other end of the session; using them made every remote player show up under a local name
+        /// or a bare colour.
+        /// </remarks>
+        private string NameOf(PlayerId player)
+        {
+            if (networkMatch != null && networkMatch.TryGetSeatName((int)player, out string online))
+                return online;
+
+            return SeatRoster.IsComputer(player)
                 ? SeatRoster.Decorate(player, palette.GetDisplayName(player))
                 : PlayerProfiles.GetName(player, palette.GetDisplayName(player));
+        }
 
         private MatchState Match => matchController != null ? matchController.State : null;
 

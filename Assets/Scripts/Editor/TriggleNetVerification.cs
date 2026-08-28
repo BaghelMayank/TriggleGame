@@ -64,9 +64,10 @@ namespace Triggle.EditorTools
             {
                 NetMessage.Hello(2, "Mayank", 3, 998877),
                 NetMessage.AssignSeat(998877, 3),
+                NetMessage.Chat(2, ChatKind.Emote, 4, null),
                 NetMessage.StartMatch(4, 4, 3, 5),
                 NetMessage.PlaceBand(1, 173, 42),
-                NetMessage.Chat(3, 7, "Good game"),
+                NetMessage.Chat(3, ChatKind.Phrase, 1, "Good game"),
                 NetMessage.NextRound(2),
                 NetMessage.Resign(4)
             };
@@ -136,7 +137,7 @@ namespace Triggle.EditorTools
             // could legitimately exceed it would be silently dropped in a live game and never in a test.
             // Worst case is a Hello or Chat carrying a full-length, entirely multi-byte string.
             string widest = new string('é', NetMessage.MaxTextLength);
-            int largest = NetMessage.Chat(4, int.MaxValue, widest).Serialize().Length;
+            int largest = NetMessage.Chat(4, ChatKind.Text, 0, widest).Serialize().Length;
 
             report.AppendLine($"    largest possible message: {largest} bytes " +
                               $"(transport limit {UgsSessionTransport.MaxPacketSize})");

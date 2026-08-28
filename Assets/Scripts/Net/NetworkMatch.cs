@@ -59,7 +59,7 @@ namespace Triggle.Net
         public bool IsDesynced => _desynced;
 
         /// <summary>Raised for chat traffic, so the chat panel needs no reference to the transport.</summary>
-        public event Action<int, int, string> ChatReceived;
+        public event Action<int, ChatKind, int, string> ChatReceived;
 
         /// <summary>Raised when the boards diverge, with a player-facing explanation.</summary>
         public event Action<string> Desynced;
@@ -256,11 +256,11 @@ namespace Triggle.Net
         }
 
         /// <summary>Sends a quick-chat phrase or emote to the other players.</summary>
-        public void SendChat(int phraseId, string text)
+        public void SendChat(ChatKind kind, int id, string text)
         {
             if (!IsOnline) return;
 
-            _transport.Send(NetMessage.Chat(_transport.LocalSeat, phraseId, text));
+            _transport.Send(NetMessage.Chat(LocalSeat, kind, id, text));
         }
 
         // ------------------------------------------------------------------ outgoing
@@ -308,7 +308,7 @@ namespace Triggle.Net
                     break;
 
                 case NetMessageKind.Chat:
-                    ChatReceived?.Invoke(message.Seat, message.A, message.Text);
+                    ChatReceived?.Invoke(message.Seat, (ChatKind)message.B, message.A, message.Text);
                     break;
 
                 case NetMessageKind.NextRound:

@@ -34,6 +34,19 @@ namespace Triggle.Net
         AssignSeat = 7
     }
 
+    /// <summary>What a chat packet carries.</summary>
+    public enum ChatKind
+    {
+        /// <summary>One of the fixed quick-chat phrases, by id.</summary>
+        Phrase = 0,
+
+        /// <summary>One of the emoji, by id.</summary>
+        Emote = 1,
+
+        /// <summary>Something the player typed. The only kind that carries arbitrary text.</summary>
+        Text = 2
+    }
+
     /// <summary>
     /// One packet. Deliberately a flat struct with a handful of ints rather than a class hierarchy:
     /// every message this game needs fits in a few numbers.
@@ -52,7 +65,7 @@ namespace Triggle.Net
     public struct NetMessage
     {
         /// <summary>Bumped whenever the wire format changes, so mismatched builds refuse each other.</summary>
-        public const int ProtocolVersion = 1;
+        public const int ProtocolVersion = 2;
 
         public NetMessageKind Kind;
 
@@ -113,11 +126,13 @@ namespace Triggle.Net
             B = moveNumber
         };
 
-        public static NetMessage Chat(int seat, int phraseId, string text) => new NetMessage
+        /// <param name="id">Phrase or emote id. Ignored for <see cref="ChatKind.Text"/>.</param>
+        public static NetMessage Chat(int seat, ChatKind kind, int id, string text) => new NetMessage
         {
             Kind = NetMessageKind.Chat,
             Seat = seat,
-            A = phraseId,
+            A = id,
+            B = (int)kind,
             Text = text
         };
 

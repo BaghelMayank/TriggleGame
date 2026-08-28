@@ -144,6 +144,7 @@ namespace Triggle.EditorTools
             var hudController = canvasGo.AddComponent<GameUIController>();
             var pause = canvasGo.AddComponent<PausePanelController>();
             var chat = canvasGo.AddComponent<ChatPanelController>();
+            var emotePopups = canvasGo.AddComponent<EmotePopupController>();
             var multiplayer = canvasGo.AddComponent<MultiplayerPanelController>();
 
             RectTransform root = canvasGo.GetComponent<RectTransform>();
@@ -168,6 +169,7 @@ namespace Triggle.EditorTools
             // the listener persists in the saved scene (an AddListener call here would not).
             WirePause(pause, context, menu, settings, pauseRefs, hud.MenuButton.Button);
             WireChat(chat, context, hud.Chat);
+            WireEmotePopups(emotePopups, context, chat, hud);
             WireMultiplayer(multiplayer, context, menu, multiplayerRefs);
 
             // Saved-scene state: root menu visible, everything else hidden.
@@ -1085,6 +1087,8 @@ namespace Triggle.EditorTools
             public Neon MenuButton;
             public List<HudCard> Cards = new List<HudCard>(4);
             public ChatPanel Chat;
+            public CanvasGroup[] EmoteSlots = new CanvasGroup[EmotePopupSlots];
+            public TMP_Text[] EmoteLabels = new TMP_Text[EmotePopupSlots];
         }
 
         private sealed class ChatPanel
@@ -1096,9 +1100,15 @@ namespace Triggle.EditorTools
             public TMP_Text Hint;
             public Neon[] Phrases = new Neon[TriggleUISprites.EmoteCount];
             public Image[] PhraseEmotes = new Image[TriggleUISprites.EmoteCount];
+            public Neon[] Emotes = new Neon[ChatEmotes.Count];
+            public TMP_InputField MessageInput;
+            public Neon Send;
         }
 
-        private const int ChatLogLines = 6;
+        private const int ChatLogLines = 5;
+
+        /// <summary>How many emoji popups can be on screen at once.</summary>
+        private const int EmotePopupSlots = 3;
 
         /// <summary>How far a corner player card reaches in from the screen edge, in canvas units.</summary>
         private const float HudCardEdge = 420f;
@@ -1121,9 +1131,10 @@ namespace Triggle.EditorTools
             var refs = new ChatPanel();
 
             // --- collapsed tab -------------------------------------------------
-            refs.Open = CreateNeonButton(parent, "ChatTab", "▸", _heading, 30f,
-                new Vector2(0f, 0.5f), new Vector2(52f, 0f), new Vector2(56f, 120f),
+            refs.Open = CreateNeonButton(parent, "ChatTab", "CHAT", _heading, 17f,
+                new Vector2(0f, 0.5f), new Vector2(56f, -27f), new Vector2(64f, 130f),
                 Cyan, Coral, Cyan);
+            refs.Open.Label.characterSpacing = 2f;
 
             Image badge = AddImage(refs.Open.Root, "UnreadBadge", _circleFill, Coral, 0f,
                 new Vector2(18f, 42f));
@@ -1132,67 +1143,88 @@ namespace Triggle.EditorTools
             refs.UnreadBadge = badge.gameObject;
 
             // --- expanded panel ------------------------------------------------
-            Neon card = CreateNeon(parent, "ChatPanel", new Vector2(0f, 0.5f), new Vector2(224f, 0f),
-                new Vector2(400f, 500f), CardFill, Cyan, Coral, false, 0.3f);
+            // 580 tall, centred on the gap between the corner player cards rather than on the screen.
+            // Those cards occupy up to y=208 and from y=818, so the usable band is 610 units and its
+            // middle sits 27 units below centre.
+            Neon card = CreateNeon(parent, "ChatPanel", new Vector2(0f, 0.5f), new Vector2(232f, -27f),
+                new Vector2(440f, 580f), CardFill, Cyan, Coral, false, 0.3f);
             refs.Root = card.Root.gameObject;
             RectTransform c = card.Root;
 
             CreateText(c, "Header", _heading, 24f, TextAlignmentOptions.Left,
-                new Vector2(0f, 1f), new Vector2(120f, -34f), new Vector2(200f, 30f), "CHAT", Cyan)
+                new Vector2(0f, 1f), new Vector2(130f, -32f), new Vector2(200f, 34f), "CHAT", Cyan)
                 .characterSpacing = 6f;
 
             refs.Close = CreateNeonButton(c, "CloseButton", "×", _heading, 28f,
-                new Vector2(1f, 1f), new Vector2(-40f, -34f), new Vector2(48f, 48f),
+                new Vector2(1f, 1f), new Vector2(-42f, -32f), new Vector2(48f, 48f),
                 InkFaint, InkFaint, InkDim);
 
             // --- message log ---------------------------------------------------
             RectTransform log = CreateColumn(c, "Log", new Vector2(0.5f, 1f),
-                new Vector2(0f, -160f), new Vector2(348f, 192f), 4f, TextAnchor.LowerLeft);
+                new Vector2(0f, -134f), new Vector2(388f, 135f), 3f, TextAnchor.LowerLeft);
 
             for (int i = 0; i < ChatLogLines; i++)
             {
                 refs.LogLines[i] = CreateText(log, $"Line{i}", _bodyLight, 17f,
-                    TextAlignmentOptions.Left, Vector2.zero, Vector2.zero, new Vector2(348f, 24f),
+                    TextAlignmentOptions.Left, Vector2.zero, Vector2.zero, new Vector2(388f, 24f),
                     string.Empty, Ink);
 
                 refs.LogLines[i].enableWordWrapping = false;
                 refs.LogLines[i].overflowMode = TextOverflowModes.Ellipsis;
-                SetLayoutSize(refs.LogLines[i].rectTransform, 348f, 24f);
+                SetLayoutSize(refs.LogLines[i].rectTransform, 388f, 24f);
             }
 
             refs.Hint = CreateText(c, "Hint", _bodyLight, 14f, TextAlignmentOptions.Center,
-                new Vector2(0.5f, 0.5f), new Vector2(0f, -18f), new Vector2(348f, 34f),
+                new Vector2(0.5f, 0.5f), new Vector2(0f, 58f), new Vector2(388f, 26f),
                 string.Empty, InkFaint);
             refs.Hint.enableWordWrapping = true;
 
+            // --- emoji row ------------------------------------------------------
+            // The glyph is a label carrying a TextMeshPro sprite tag, not an Image: the emoji come from
+            // the EmojiOne sprite asset that ships with TMP, so they render in colour through the same
+            // text pipeline as everything else and need no atlas of their own.
+            RectTransform emojiRow = CreateRow(c, "Emotes", new Vector2(0.5f, 0.5f),
+                new Vector2(0f, 10f), new Vector2(388f, 56f), 6f);
+
+            for (int i = 0; i < ChatEmotes.Count; i++)
+            {
+                Neon emote = CreateNeonButton(emojiRow, $"Emote{i}", string.Empty, _body, 26f,
+                    Vector2.zero, Vector2.zero, new Vector2(56f, 56f), Cyan, Coral, Ink);
+
+                SetLayoutSize(emote.Root, 56f, 56f);
+                emote.Label.text = ChatEmotes.Tag(i);
+
+                refs.Emotes[i] = emote;
+            }
+
             // --- quick-chat grid -----------------------------------------------
-            RectTransform grid = CreateRect(c, "Phrases", new Vector2(0.5f, 0f),
-                new Vector2(0f, 130f), new Vector2(360f, 210f));
+            RectTransform grid = CreateRect(c, "Phrases", new Vector2(0.5f, 0.5f),
+                new Vector2(0f, -110f), new Vector2(388f, 160f));
 
             var layout = grid.gameObject.AddComponent<GridLayoutGroup>();
-            layout.cellSize = new Vector2(172f, 60f);
-            layout.spacing = new Vector2(12f, 12f);
+            layout.cellSize = new Vector2(186f, 48f);
+            layout.spacing = new Vector2(10f, 8f);
             layout.constraint = GridLayoutGroup.Constraint.FixedColumnCount;
             layout.constraintCount = 2;
             layout.childAlignment = TextAnchor.UpperCenter;
 
             for (int i = 0; i < TriggleUISprites.EmoteCount; i++)
             {
-                Neon phrase = CreateNeonButton(grid, $"Phrase{i}", string.Empty, _body, 16f,
-                    Vector2.zero, Vector2.zero, new Vector2(172f, 60f), Cyan, Coral, Ink);
+                Neon phrase = CreateNeonButton(grid, $"Phrase{i}", string.Empty, _body, 15f,
+                    Vector2.zero, Vector2.zero, new Vector2(186f, 48f), Cyan, Coral, Ink);
 
                 // The label is offset to leave room for the emote at the left of the button.
                 phrase.Label.rectTransform.anchorMin = new Vector2(0f, 0f);
                 phrase.Label.rectTransform.anchorMax = new Vector2(1f, 1f);
-                phrase.Label.rectTransform.offsetMin = new Vector2(48f, 0f);
-                phrase.Label.rectTransform.offsetMax = new Vector2(-8f, 0f);
+                phrase.Label.rectTransform.offsetMin = new Vector2(42f, 0f);
+                phrase.Label.rectTransform.offsetMax = new Vector2(-6f, 0f);
                 phrase.Label.alignment = TextAlignmentOptions.Left;
                 phrase.Label.enableWordWrapping = false;
                 phrase.Label.overflowMode = TextOverflowModes.Ellipsis;
 
-                Image emote = AddImage(phrase.Root, "Emote", Avatars[0], Ink, 0f, new Vector2(-56f, 0f));
+                Image emote = AddImage(phrase.Root, "Emote", Avatars[0], Ink, 0f, new Vector2(-66f, 0f));
                 emote.rectTransform.anchorMin = emote.rectTransform.anchorMax = new Vector2(0.5f, 0.5f);
-                emote.rectTransform.sizeDelta = new Vector2(30f, 30f);
+                emote.rectTransform.sizeDelta = new Vector2(26f, 26f);
                 emote.sprite = TriggleUISprites.Get(TriggleUISprites.EmotePath(i));
                 emote.type = Image.Type.Simple;
                 emote.preserveAspect = true;
@@ -1200,6 +1232,14 @@ namespace Triggle.EditorTools
                 refs.Phrases[i] = phrase;
                 refs.PhraseEmotes[i] = emote;
             }
+
+            // --- type a message -------------------------------------------------
+            refs.MessageInput = CreateInputField(c, "MessageInput", new Vector2(0.5f, 0.5f),
+                new Vector2(-50f, -238f), new Vector2(280f, 52f), 18f, "Type a message", Cyan);
+
+            refs.Send = CreateNeonButton(c, "SendButton", "SEND", _heading, 17f,
+                new Vector2(0.5f, 0.5f), new Vector2(150f, -238f), new Vector2(100f, 52f),
+                Green, Green, Color.white, new Color(Green.r, Green.g, Green.b, 0.20f));
 
             // The tab and the panel are alternatives, and ChatPanelController only picks one at runtime.
             // Left on in the saved scene they sit on top of each other.
@@ -1321,6 +1361,30 @@ namespace Triggle.EditorTools
 
             // --- chat ---------------------------------------------------------
             hud.Chat = BuildChat(panel);
+
+            // --- emoji popups --------------------------------------------------
+            // Right edge, mirroring the chat tab, inside the same band between the corner player cards.
+            // Nothing here is a raycast target, so a popup cannot swallow a peg click on the board.
+            RectTransform emotes = CreateColumn(panel, "EmotePopups", new Vector2(1f, 0.5f),
+                new Vector2(-230f, -27f), new Vector2(400f, 200f), 8f, TextAnchor.LowerRight);
+
+            for (int i = 0; i < EmotePopupSlots; i++)
+            {
+                RectTransform slot = CreateRect(emotes, $"EmoteSlot{i}", Vector2.zero, Vector2.zero,
+                    new Vector2(400f, 56f));
+                SetLayoutSize(slot, 400f, 56f);
+
+                hud.EmoteSlots[i] = slot.gameObject.AddComponent<CanvasGroup>();
+                hud.EmoteSlots[i].blocksRaycasts = false;
+                hud.EmoteSlots[i].interactable = false;
+                hud.EmoteSlots[i].alpha = 0f;
+
+                hud.EmoteLabels[i] = CreateText(slot, "Label", _body, 24f, TextAlignmentOptions.Right,
+                    new Vector2(0.5f, 0.5f), Vector2.zero, new Vector2(400f, 44f), string.Empty, Ink);
+
+                hud.EmoteLabels[i].enableWordWrapping = false;
+                hud.EmoteLabels[i].overflowMode = TextOverflowModes.Ellipsis;
+            }
 
             return hud;
         }
@@ -1585,6 +1649,9 @@ namespace Triggle.EditorTools
             for (int i = 0; i < ChatLogLines; i++)
                 so.Ref($"logLines.Array.data[{i}]", refs.LogLines[i]);
 
+            so.Ref("messageInput", refs.MessageInput);
+            so.Ref("sendButton", refs.Send.Button);
+
             so.ArraySize("phraseButtons", TriggleUISprites.EmoteCount);
             for (int i = 0; i < TriggleUISprites.EmoteCount; i++)
             {
@@ -1593,6 +1660,34 @@ namespace Triggle.EditorTools
                 so.Ref($"{path}.button", refs.Phrases[i].Button);
                 so.Ref($"{path}.emote", refs.PhraseEmotes[i]);
                 so.Ref($"{path}.label", refs.Phrases[i].Label);
+            }
+
+            so.ArraySize("emoteButtons", ChatEmotes.Count);
+            for (int i = 0; i < ChatEmotes.Count; i++)
+            {
+                string path = $"emoteButtons.Array.data[{i}]";
+
+                so.Ref($"{path}.button", refs.Emotes[i].Button);
+                so.Ref($"{path}.glyph", refs.Emotes[i].Label);
+            }
+        }
+
+        private static void WireEmotePopups(EmotePopupController controller, Context context,
+                                             ChatPanelController chat, Hud hud)
+        {
+            using var so = new SerializedWiring(controller);
+
+            so.Ref("chat", chat);
+            so.Ref("palette", context.Palette);
+            so.Ref("networkMatch", context.Net);
+
+            so.ArraySize("slotGroups", EmotePopupSlots);
+            so.ArraySize("slotLabels", EmotePopupSlots);
+
+            for (int i = 0; i < EmotePopupSlots; i++)
+            {
+                so.Ref($"slotGroups.Array.data[{i}]", hud.EmoteSlots[i]);
+                so.Ref($"slotLabels.Array.data[{i}]", hud.EmoteLabels[i]);
             }
         }
 

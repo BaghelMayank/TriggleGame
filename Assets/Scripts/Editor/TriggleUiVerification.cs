@@ -336,6 +336,41 @@ namespace Triggle.EditorTools
         }
 
         /// <summary>
+        /// Flags a label that has text and a visible colour but draws no glyphs at all.
+        /// </summary>
+        /// <remarks>
+        /// TextMeshPro culls whole lines that do not fit the rect vertically when overflow is Truncate
+        /// or Ellipsis. A single-line label in a rect shorter than one line therefore renders
+        /// <i>nothing</i> - not clipped, not ellipsised, absent - while the Inspector still shows the
+        /// text sitting there. It is a cliff rather than a slope: a point size below the threshold looks
+        /// perfect and a point above it disappears, which is a very confusing thing to debug by eye.
+        /// <para>
+        /// Worth noting this was hidden by the audit itself: <see cref="BoundsOf"/> falls back to the
+        /// rect when the rendered bounds are empty, so every other pass treated a vanished label as
+        /// present and correctly placed.
+        /// </para>
+        /// </remarks>
+        private static void CheckRenders(Component control, RectTransform panel, string device,
+                                          List<string> problems)
+        {
+            if (control is not TMP_Text label) return;
+            if (string.IsNullOrWhiteSpace(label.text) || label.color.a < 0.05f) return;
+
+            // An input field's own text and placeholder are driven by the field, and an empty one holds
+            // a zero-width space - which is not whitespace as far as string.IsNullOrWhiteSpace is
+            // concerned, and renders nothing quite legitimately.
+            if (label.GetComponentInParent<TMP_InputField>() != null) return;
+
+            label.ForceMeshUpdate();
+            if (label.textBounds.size.y > 0.01f && label.textBounds.size.x > 0.01f) return;
+
+            float height = label.rectTransform.rect.height;
+
+            problems.Add($"{device}: {Path(label.transform, panel)} renders nothing - " +
+                         $"{label.fontSize:0.#}pt in a {height:0.#} unit tall rect");
+        }
+
+        /// <summary>
         /// Flags a label with a solid image painted over it.
         /// </summary>
         /// <remarks>
@@ -501,6 +536,8 @@ namespace Triggle.EditorTools
                     if (margin < -ToleranceUnits)
                         clipped.Add($"{device}: {Path(control.transform, panel)} " +
                                     $"clipped by {-margin:0.0} units");
+
+                    CheckRenders(control, panel, device, clipped);
                 }
             }
             finally

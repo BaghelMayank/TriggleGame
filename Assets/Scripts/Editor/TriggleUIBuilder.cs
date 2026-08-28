@@ -457,21 +457,21 @@ namespace Triggle.EditorTools
             refs.Occupancy.characterSpacing = 8f;
 
             RectTransform roster = CreateColumn(c, "PlayerRows", new Vector2(0.5f, 1f),
-                new Vector2(0f, -502f), new Vector2(700f, 128f), 4f);
+                new Vector2(0f, -510f), new Vector2(700f, 140f), 4f);
 
             for (int i = 0; i < SeatRoster.SeatCount; i++)
             {
                 refs.PlayerRows[i] = CreateText(roster, $"PlayerRow{i}", _body, 20f,
-                    TextAlignmentOptions.Center, Vector2.zero, Vector2.zero, new Vector2(700f, 26f),
+                    TextAlignmentOptions.Center, Vector2.zero, Vector2.zero, new Vector2(700f, 30f),
                     $"Seat {i + 1} - empty", InkDim);
 
                 refs.PlayerRows[i].overflowMode = TextOverflowModes.Ellipsis;
-                SetLayoutSize(refs.PlayerRows[i].rectTransform, 700f, 26f);
+                SetLayoutSize(refs.PlayerRows[i].rectTransform, 700f, 30f);
             }
 
             // --- rules, host only ----------------------------------------------
-            const float rulesY = -628f;
-            const float rulesHeaderY = -578f;
+            const float rulesY = -650f;
+            const float rulesHeaderY = -600f;
 
             CreateText(c, "RoundsHeader", _bodyLight, 15f, TextAlignmentOptions.Center,
                 new Vector2(0.5f, 1f), new Vector2(-column, rulesHeaderY), new Vector2(380f, 22f),
@@ -510,7 +510,7 @@ namespace Triggle.EditorTools
                 Cyan, Coral, Ink);
 
             refs.RulesCaption = CreateText(c, "RulesCaption", _bodyLight, 15f,
-                TextAlignmentOptions.Center, new Vector2(0.5f, 1f), new Vector2(0f, -684f),
+                TextAlignmentOptions.Center, new Vector2(0.5f, 1f), new Vector2(0f, -700f),
                 new Vector2(880f, 22f), "Single round", InkFaint);
 
             // 190, not 148: START occupies 54..138 from the bottom, so a status line at 148 sat 3 units
@@ -1349,8 +1349,12 @@ namespace Triggle.EditorTools
             avatarImage.raycastTarget = false;
             card.Avatar = avatarImage;
 
+            // 40 tall, not 32. TextMeshPro culls a whole line that does not fit the rect vertically when
+            // overflow is Ellipsis, so a 25pt line in a 32 unit rect rendered nothing at all - not
+            // clipped, not ellipsised, absent, while the Inspector still showed the text. It is a cliff:
+            // 24pt looked perfect and 25pt vanished. Keep rects at roughly 1.4x the point size.
             card.NameLabel = CreateText(root.Root, "NameLabel", _body, 25f, TextAlignmentOptions.Left,
-                new Vector2(0f, 1f), new Vector2(258f, -44f), new Vector2(240f, 32f),
+                new Vector2(0f, 1f), new Vector2(258f, -46f), new Vector2(240f, 40f),
                 $"Player {index + 1}", color);
             card.NameLabel.overflowMode = TextOverflowModes.Ellipsis;
 

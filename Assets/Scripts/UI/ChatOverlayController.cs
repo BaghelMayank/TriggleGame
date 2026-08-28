@@ -23,7 +23,7 @@ namespace Triggle.UI
     /// </para>
     /// </remarks>
     [DisallowMultipleComponent]
-    public sealed class EmoteReactionController : MonoBehaviour
+    public sealed class ChatOverlayController : MonoBehaviour
     {
         /// <summary>Most labels the pool will ever hold, however fast reactions arrive.</summary>
         private const int PoolLimit = 48;
@@ -44,6 +44,15 @@ namespace Triggle.UI
         [SerializeField] private TMP_Text captionLabel;
 
         [SerializeField] private CanvasGroup captionGroup;
+
+        [Header("Messages")]
+        [Tooltip("Phrase and typed messages, oldest first. Newest lands in the last slot.")]
+        [SerializeField] private TMP_Text[] messageLabels = new TMP_Text[3];
+
+        [SerializeField] private CanvasGroup[] messageGroups = new CanvasGroup[3];
+
+        [Tooltip("How long a message stays up before it fades.")]
+        [SerializeField, Min(0.5f)] private float messageSeconds = 4.5f;
 
         [Header("Burst")]
         [Tooltip("Emoji released per reaction.")]
@@ -69,6 +78,7 @@ namespace Triggle.UI
         private readonly List<TMP_Text> _idle = new List<TMP_Text>(PoolLimit);
 
         private Coroutine _caption;
+        private Coroutine[] _messageFades;
 
         private void Awake()
         {
@@ -78,31 +88,112 @@ namespace Triggle.UI
 
             if (template != null) template.gameObject.SetActive(false);
             if (captionGroup != null) captionGroup.alpha = 0f;
+
+            _messageFades = new Coroutine[messageGroups.Length];
+
+            for (int i = 0; i < messageGroups.Length; i++)
+                if (messageGroups[i] != null) messageGroups[i].alpha = 0f;
         }
 
         private void OnEnable()
         {
-            if (chat != null) chat.EmotePosted += React;
+            if (chat != null) chat.MessagePosted += Post;
 
             GameEvents.OnGameReset += StopEverything;
         }
 
         private void OnDisable()
         {
-            if (chat != null) chat.EmotePosted -= React;
+            if (chat != null) chat.MessagePosted -= Post;
 
             GameEvents.OnGameReset -= StopEverything;
             StopEverything();
         }
 
-        /// <summary>Releases a burst of one emoji, and names who sent it.</summary>
-        public void React(int seat, int emoteId)
+        /// <summary>
+        /// Surfaces a message over the board, in the shape that suits it.
+        /// </summary>
+        /// <remarks>
+        /// An emoji bursts and a message is posted to a stack, because they are different gestures: a
+        /// reaction is a flourish nobody has to read, whereas a phrase or a typed line is something the
+        /// other players are meant to take in. Both land on the right so a player watching the board sees
+        /// them without opening the panel - which most people will leave closed mid-match.
+        /// </remarks>
+        public void Post(int seat, ChatKind kind, int id, string text)
         {
-            if (!ChatEmotes.IsValid(emoteId) || stage == null || template == null) return;
             if (!isActiveAndEnabled) return;
 
-            StartCoroutine(BurstRoutine(ChatEmotes.Tag(emoteId)));
-            ShowCaption(seat);
+            if (kind == ChatKind.Emote)
+            {
+                if (!ChatEmotes.IsValid(id) || stage == null || template == null) return;
+
+                StartCoroutine(BurstRoutine(ChatEmotes.Tag(id)));
+                ShowCaption(seat);
+                return;
+            }
+
+            string body = kind == ChatKind.Text ? text : ChatPhrases.Get(id).Text;
+            if (string.IsNullOrWhiteSpace(body)) return;
+
+            PushMessage(seat, body);
+        }
+
+        // ------------------------------------------------------------------ message stack
+
+        /// <summary>
+        /// Puts a line in the newest slot, moving the others up.
+        /// </summary>
+        /// <remarks>
+        /// Oldest first so the newest always lands at the bottom and the stack reads top-to-bottom in
+        /// the order things were said, the way a stream's chat does. Each slot keeps its own fade, so an
+        /// older line still expires on its own clock after being shuffled.
+        /// </remarks>
+        private void PushMessage(int seat, string body)
+        {
+            if (messageLabels == null || messageLabels.Length == 0) return;
+
+            for (int i = 0; i < messageLabels.Length - 1; i++)
+            {
+                if (messageLabels[i] == null || messageLabels[i + 1] == null) continue;
+
+                messageLabels[i].text = messageLabels[i + 1].text;
+
+                if (messageGroups[i] != null && messageGroups[i + 1] != null)
+                    messageGroups[i].alpha = messageGroups[i + 1].alpha;
+            }
+
+            int last = messageLabels.Length - 1;
+            if (messageLabels[last] == null) return;
+
+            var player = (PlayerId)Mathf.Clamp(seat, 1, SeatRoster.SeatCount);
+            Color colour = palette.GetColor(player);
+
+            messageLabels[last].text =
+                $"<color=#{ColorUtility.ToHtmlStringRGB(colour)}>{NameOf(seat)}</color>  {body}";
+
+            if (messageGroups == null || last >= messageGroups.Length || messageGroups[last] == null) return;
+
+            if (_messageFades[last] != null) StopCoroutine(_messageFades[last]);
+
+            messageGroups[last].alpha = 1f;
+            _messageFades[last] = StartCoroutine(FadeMessageRoutine(messageGroups[last], last));
+        }
+
+        private IEnumerator FadeMessageRoutine(CanvasGroup group, int index)
+        {
+            yield return new WaitForSeconds(messageSeconds);
+
+            float elapsed = 0f;
+            while (elapsed < 0.5f)
+            {
+                elapsed += Time.deltaTime;
+                group.alpha = Mathf.Clamp01(1f - elapsed / 0.5f);
+
+                yield return null;
+            }
+
+            group.alpha = 0f;
+            _messageFades[index] = null;
         }
 
         private IEnumerator BurstRoutine(string tag)
@@ -255,6 +346,14 @@ namespace Triggle.UI
         {
             StopAllCoroutines();
             _caption = null;
+
+            for (int i = 0; _messageFades != null && i < _messageFades.Length; i++)
+            {
+                _messageFades[i] = null;
+
+                if (messageGroups[i] != null) messageGroups[i].alpha = 0f;
+                if (messageLabels[i] != null) messageLabels[i].text = string.Empty;
+            }
 
             for (int i = 0; i < _pool.Count; i++)
             {

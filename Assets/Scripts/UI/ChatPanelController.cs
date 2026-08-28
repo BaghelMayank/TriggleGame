@@ -86,9 +86,9 @@ namespace Triggle.UI
         private bool _open;
 
         /// <summary>
-        /// Raised when anyone sends an emoji, so the HUD can float it over the board. Seat, then emote id.
+        /// Raised for every message anyone sends, so the HUD can surface it over the board.
         /// </summary>
-        public event Action<int, int> EmotePosted;
+        public event Action<int, ChatKind, int, string> MessagePosted;
 
         private void Awake()
         {
@@ -143,14 +143,22 @@ namespace Triggle.UI
 
         private void OnEnable()
         {
-            if (networkMatch != null) networkMatch.ChatReceived += HandleChatReceived;
+            if (networkMatch != null)
+            {
+                networkMatch.ChatReceived += HandleChatReceived;
+                networkMatch.StatusChanged += HandleStatusChanged;
+            }
 
             GameEvents.OnGameReset += HandleGameReset;
         }
 
         private void OnDisable()
         {
-            if (networkMatch != null) networkMatch.ChatReceived -= HandleChatReceived;
+            if (networkMatch != null)
+            {
+                networkMatch.ChatReceived -= HandleChatReceived;
+                networkMatch.StatusChanged -= HandleStatusChanged;
+            }
 
             GameEvents.OnGameReset -= HandleGameReset;
             StopPulse();
@@ -167,14 +175,30 @@ namespace Triggle.UI
         private void SetOpen(bool open)
         {
             _open = open;
+            Apply();
+        }
 
-            if (panel != null) panel.SetActive(open);
-            if (openButton != null) openButton.gameObject.SetActive(!open);
+        /// <summary>
+        /// Shows the chat only while a network session is running.
+        /// </summary>
+        /// <remarks>
+        /// There is nobody to talk to in a hot-seat or vs-AI match - everyone who can read it is already
+        /// looking at the same screen - so the tab is not just useless offline, it is a control that
+        /// covers part of the board for nothing. Driven by the transport's state rather than by whether
+        /// the panel has ever been opened, so it appears when a room connects and goes away when it ends.
+        /// </remarks>
+        private void Apply()
+        {
+            bool online = networkMatch != null && networkMatch.IsOnline;
+            if (!online) _open = false;
+
+            if (panel != null) panel.SetActive(online && _open);
+            if (openButton != null) openButton.gameObject.SetActive(online && !_open);
 
             // Opening is what marks the log read, so the dot clears here rather than on send.
-            if (open) StopPulse();
+            if (!online || _open) StopPulse();
 
-            if (open) RefreshHint();
+            if (online && _open) RefreshHint();
         }
 
         // ------------------------------------------------------------------ sending
@@ -189,7 +213,11 @@ namespace Triggle.UI
         {
             if (!ChatPhrases.IsValid(phraseId)) return;
 
-            Append(LocalSeat(), ChatKind.Phrase, phraseId, null);
+            int seat = LocalSeat();
+
+            Append(seat, ChatKind.Phrase, phraseId, null);
+            MessagePosted?.Invoke(seat, ChatKind.Phrase, phraseId, null);
+
             networkMatch?.SendChat(ChatKind.Phrase, phraseId, ChatPhrases.Get(phraseId).Text);
         }
 
@@ -201,7 +229,7 @@ namespace Triggle.UI
             int seat = LocalSeat();
 
             Append(seat, ChatKind.Emote, emoteId, null);
-            EmotePosted?.Invoke(seat, emoteId);
+            MessagePosted?.Invoke(seat, ChatKind.Emote, emoteId, null);
 
             networkMatch?.SendChat(ChatKind.Emote, emoteId, null);
         }
@@ -218,7 +246,11 @@ namespace Triggle.UI
 
             if (string.IsNullOrEmpty(text)) return;
 
-            Append(LocalSeat(), ChatKind.Text, 0, text);
+            int seat = LocalSeat();
+
+            Append(seat, ChatKind.Text, 0, text);
+            MessagePosted?.Invoke(seat, ChatKind.Text, 0, text);
+
             networkMatch?.SendChat(ChatKind.Text, 0, text);
         }
 
@@ -247,14 +279,17 @@ namespace Triggle.UI
         {
             Append(seat, kind, id, text);
 
-            if (kind == ChatKind.Emote) EmotePosted?.Invoke(seat, id);
+            MessagePosted?.Invoke(seat, kind, id, text);
             if (!_open) StartPulse();
         }
+
+        private void HandleStatusChanged(SessionStatus status) => Apply();
 
         private void HandleGameReset()
         {
             _log.Clear();
             RefreshLog();
+            Apply();
         }
 
         // ------------------------------------------------------------------ log

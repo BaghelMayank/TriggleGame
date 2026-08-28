@@ -144,7 +144,7 @@ namespace Triggle.EditorTools
             var hudController = canvasGo.AddComponent<GameUIController>();
             var pause = canvasGo.AddComponent<PausePanelController>();
             var chat = canvasGo.AddComponent<ChatPanelController>();
-            var reactions = canvasGo.AddComponent<EmoteReactionController>();
+            var reactions = canvasGo.AddComponent<ChatOverlayController>();
             var multiplayer = canvasGo.AddComponent<MultiplayerPanelController>();
 
             RectTransform root = canvasGo.GetComponent<RectTransform>();
@@ -1090,6 +1090,8 @@ namespace Triggle.EditorTools
             public RectTransform EmoteStage;
             public TMP_Text EmoteTemplate, EmoteCaption;
             public CanvasGroup EmoteCaptionGroup;
+            public TMP_Text[] MessageLabels = new TMP_Text[ChatMessageSlots];
+            public CanvasGroup[] MessageGroups = new CanvasGroup[ChatMessageSlots];
         }
 
         private sealed class ChatPanel
@@ -1107,6 +1109,9 @@ namespace Triggle.EditorTools
         }
 
         private const int ChatLogLines = 5;
+
+        /// <summary>Chat lines shown over the board at once.</summary>
+        private const int ChatMessageSlots = 3;
 
 
         /// <summary>How far a corner player card reaches in from the screen edge, in canvas units.</summary>
@@ -1394,6 +1399,30 @@ namespace Triggle.EditorTools
                 new Vector2(0.5f, 0.5f), Vector2.zero, new Vector2(300f, 28f), string.Empty, Ink);
             hud.EmoteCaption.overflowMode = TextOverflowModes.Ellipsis;
 
+            // --- chat messages over the board -----------------------------------
+            // Right side, level with the middle of the board, so a phrase or a typed line is readable
+            // without opening the panel. Emoji rise past them, which is what a stream looks like.
+            RectTransform messages = CreateColumn(panel, "ChatMessages", new Vector2(1f, 0.5f),
+                new Vector2(-222f, -27f), new Vector2(420f, 160f), 6f, TextAnchor.LowerRight);
+
+            for (int i = 0; i < ChatMessageSlots; i++)
+            {
+                RectTransform slot = CreateRect(messages, $"MessageSlot{i}", Vector2.zero, Vector2.zero,
+                    new Vector2(420f, 44f));
+                SetLayoutSize(slot, 420f, 44f);
+
+                hud.MessageGroups[i] = slot.gameObject.AddComponent<CanvasGroup>();
+                hud.MessageGroups[i].blocksRaycasts = false;
+                hud.MessageGroups[i].interactable = false;
+                hud.MessageGroups[i].alpha = 0f;
+
+                hud.MessageLabels[i] = CreateText(slot, "Label", _body, 21f, TextAlignmentOptions.Right,
+                    new Vector2(0.5f, 0.5f), Vector2.zero, new Vector2(420f, 34f), string.Empty, Ink);
+
+                hud.MessageLabels[i].enableWordWrapping = false;
+                hud.MessageLabels[i].overflowMode = TextOverflowModes.Ellipsis;
+            }
+
             return hud;
         }
 
@@ -1680,7 +1709,7 @@ namespace Triggle.EditorTools
             }
         }
 
-        private static void WireReactions(EmoteReactionController controller, Context context,
+        private static void WireReactions(ChatOverlayController controller, Context context,
                                            ChatPanelController chat, Hud hud)
         {
             using var so = new SerializedWiring(controller);
@@ -1693,6 +1722,15 @@ namespace Triggle.EditorTools
             so.Ref("template", hud.EmoteTemplate);
             so.Ref("captionLabel", hud.EmoteCaption);
             so.Ref("captionGroup", hud.EmoteCaptionGroup);
+
+            so.ArraySize("messageLabels", ChatMessageSlots);
+            so.ArraySize("messageGroups", ChatMessageSlots);
+
+            for (int i = 0; i < ChatMessageSlots; i++)
+            {
+                so.Ref($"messageLabels.Array.data[{i}]", hud.MessageLabels[i]);
+                so.Ref($"messageGroups.Array.data[{i}]", hud.MessageGroups[i]);
+            }
         }
 
         // ==================================================================== wiring

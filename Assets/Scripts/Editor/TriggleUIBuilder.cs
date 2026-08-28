@@ -389,8 +389,8 @@ namespace Triggle.EditorTools
         {
             public CanvasGroup Group;
             public Neon Host, Join, Start, Leave, Back;
-            public TMP_Text RoomCode, Status, StartLabel;
-            public TMP_InputField CodeInput;
+            public TMP_Text RoomCode, Status, StartLabel, Occupancy;
+            public TMP_InputField CodeInput, NameInput;
             public TMP_Text[] PlayerRows = new TMP_Text[SeatRoster.SeatCount];
         }
 
@@ -401,7 +401,7 @@ namespace Triggle.EditorTools
             AddScrim(panel, Scrim);
 
             Neon card = CreateNeon(panel, "Card", new Vector2(0.5f, 0.5f), Vector2.zero,
-                new Vector2(1000f, 720f), CardFill, Cyan, Coral, false, 0.35f);
+                new Vector2(1000f, 860f), CardFill, Cyan, Coral, false, 0.35f);
             RectTransform c = card.Root;
 
             Neon header = CreateNeon(c, "HeaderChip", new Vector2(0.5f, 1f), new Vector2(0f, 8f),
@@ -409,52 +409,62 @@ namespace Triggle.EditorTools
             CreateText(header.Root, "HeaderLabel", _heading, H2, TextAlignmentOptions.Center,
                 new Vector2(0.5f, 0.5f), Vector2.zero, new Vector2(460f, 44f), "PLAY ONLINE", Cyan);
 
+            // --- your name -----------------------------------------------------
+            // Above both halves, because it applies whether you host or join, and other players see it.
+            CreateText(c, "NameHeader", _bodyLight, SmallSize, TextAlignmentOptions.Center,
+                new Vector2(0.5f, 1f), new Vector2(0f, -118f), new Vector2(600f, 24f),
+                "YOUR NAME", InkFaint).characterSpacing = 8f;
+
+            refs.NameInput = CreateInputField(c, "NameInput", new Vector2(0.5f, 1f),
+                new Vector2(0f, -168f), new Vector2(520f, 66f), 26f, "Enter your name", Cyan);
+
             // --- host, left half ----------------------------------------------
             const float column = 240f;
 
             CreateText(c, "HostHeader", _bodyLight, SmallSize, TextAlignmentOptions.Center,
-                new Vector2(0.5f, 1f), new Vector2(-column, -128f), new Vector2(420f, 24f),
+                new Vector2(0.5f, 1f), new Vector2(-column, -236f), new Vector2(420f, 24f),
                 "HOST A ROOM", InkFaint).characterSpacing = 8f;
 
-            refs.Host = CreateNeonButton(c, "HostButton", "CREATE ROOM", _heading, 26f,
-                new Vector2(0.5f, 1f), new Vector2(-column, -186f), new Vector2(380f, 74f),
+            refs.Host = CreateNeonButton(c, "HostButton", "CREATE ROOM", _heading, 24f,
+                new Vector2(0.5f, 1f), new Vector2(-column, -288f), new Vector2(380f, 66f),
                 Green, Green, Color.white, new Color(Green.r, Green.g, Green.b, 0.20f));
 
             Neon codeBox = CreateNeon(c, "RoomCodeBox", new Vector2(0.5f, 1f),
-                new Vector2(-column, -272f), new Vector2(380f, 78f), SurfaceFill, Cyan, Cyan);
-            refs.RoomCode = CreateText(codeBox.Root, "RoomCode", _display, 42f,
+                new Vector2(-column, -364f), new Vector2(380f, 70f), SurfaceFill, Cyan, Cyan);
+            refs.RoomCode = CreateText(codeBox.Root, "RoomCode", _display, 38f,
                 TextAlignmentOptions.Center, new Vector2(0.5f, 0.5f), Vector2.zero,
-                new Vector2(380f, 54f), "- - - - - -", Ink);
+                new Vector2(380f, 48f), "- - - - - -", Ink);
             refs.RoomCode.characterSpacing = 8f;
 
             // --- join, right half ---------------------------------------------
             CreateText(c, "JoinHeader", _bodyLight, SmallSize, TextAlignmentOptions.Center,
-                new Vector2(0.5f, 1f), new Vector2(column, -128f), new Vector2(420f, 24f),
+                new Vector2(0.5f, 1f), new Vector2(column, -236f), new Vector2(420f, 24f),
                 "JOIN WITH A CODE", InkFaint).characterSpacing = 8f;
 
             refs.CodeInput = CreateInputField(c, "CodeInput", new Vector2(0.5f, 1f),
-                new Vector2(column, -186f), new Vector2(380f, 74f), 30f, "ROOM CODE", Cyan);
+                new Vector2(column, -288f), new Vector2(380f, 66f), 28f, "ROOM CODE", Cyan);
 
-            refs.Join = CreateNeonButton(c, "JoinButton", "JOIN ROOM", _heading, 26f,
-                new Vector2(0.5f, 1f), new Vector2(column, -272f), new Vector2(380f, 78f),
+            refs.Join = CreateNeonButton(c, "JoinButton", "JOIN ROOM", _heading, 24f,
+                new Vector2(0.5f, 1f), new Vector2(column, -364f), new Vector2(380f, 70f),
                 Cyan, Coral, Ink);
 
             // --- roster --------------------------------------------------------
-            CreateText(c, "PlayersHeader", _bodyLight, SmallSize, TextAlignmentOptions.Center,
-                new Vector2(0.5f, 1f), new Vector2(0f, -344f), new Vector2(600f, 24f),
-                "IN THE ROOM", InkFaint).characterSpacing = 8f;
+            refs.Occupancy = CreateText(c, "PlayersHeader", _bodyLight, SmallSize,
+                TextAlignmentOptions.Center, new Vector2(0.5f, 1f), new Vector2(0f, -424f),
+                new Vector2(600f, 24f), "IN THE ROOM  -  0/4", InkFaint);
+            refs.Occupancy.characterSpacing = 8f;
 
             RectTransform roster = CreateColumn(c, "PlayerRows", new Vector2(0.5f, 1f),
-                new Vector2(0f, -430f), new Vector2(700f, 140f), 6f);
+                new Vector2(0f, -502f), new Vector2(700f, 128f), 4f);
 
             for (int i = 0; i < SeatRoster.SeatCount; i++)
             {
-                refs.PlayerRows[i] = CreateText(roster, $"PlayerRow{i}", _body, 21f,
-                    TextAlignmentOptions.Center, Vector2.zero, Vector2.zero, new Vector2(700f, 28f),
+                refs.PlayerRows[i] = CreateText(roster, $"PlayerRow{i}", _body, 20f,
+                    TextAlignmentOptions.Center, Vector2.zero, Vector2.zero, new Vector2(700f, 26f),
                     $"Seat {i + 1} - empty", InkDim);
 
                 refs.PlayerRows[i].overflowMode = TextOverflowModes.Ellipsis;
-                SetLayoutSize(refs.PlayerRows[i].rectTransform, 700f, 28f);
+                SetLayoutSize(refs.PlayerRows[i].rectTransform, 700f, 26f);
             }
 
             refs.Status = CreateText(c, "Status", _bodyLight, 17f, TextAlignmentOptions.Center,
@@ -496,6 +506,8 @@ namespace Triggle.EditorTools
             so.Ref("codeInput", refs.CodeInput);
             so.Ref("joinButton", refs.Join.Button);
             so.Ref("statusLabel", refs.Status);
+            so.Ref("occupancyLabel", refs.Occupancy);
+            so.Ref("nameInput", refs.NameInput);
             so.Ref("startButton", refs.Start.Button);
             so.Ref("startLabel", refs.StartLabel);
             so.Ref("leaveButton", refs.Leave.Button);

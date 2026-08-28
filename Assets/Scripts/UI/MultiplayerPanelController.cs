@@ -40,9 +40,14 @@ namespace Triggle.UI
         [SerializeField] private TMP_InputField codeInput;
         [SerializeField] private Button joinButton;
 
+        [Header("Profile")]
+        [Tooltip("The name other players see. Persisted, and used for every online match.")]
+        [SerializeField] private TMP_InputField nameInput;
+
         [Header("Room")]
         [SerializeField] private TMP_Text[] playerRows = new TMP_Text[4];
         [SerializeField] private TMP_Text statusLabel;
+        [SerializeField] private TMP_Text occupancyLabel;
         [SerializeField] private Button startButton;
         [SerializeField] private TMP_Text startLabel;
         [SerializeField] private Button leaveButton;
@@ -76,6 +81,29 @@ namespace Triggle.UI
             if (backButton != null) backButton.onClick.AddListener(() => _ = BackAsync());
 
             if (codeInput != null) codeInput.characterLimit = 6;
+
+            if (nameInput != null)
+            {
+                nameInput.characterLimit = PlayerProfiles.MaxNameLength;
+                nameInput.onEndEdit.AddListener(CommitName);
+            }
+        }
+
+        /// <summary>
+        /// Saves the typed name, and tells the room about it if one is already open.
+        /// </summary>
+        /// <remarks>
+        /// Re-announcing matters: a player who renames themselves after joining would otherwise still
+        /// show up under the old name on every other device, with no way to correct it short of leaving.
+        /// </remarks>
+        private void CommitName(string value)
+        {
+            PlayerProfiles.DisplayName = value;
+
+            if (nameInput != null) nameInput.SetTextWithoutNotify(PlayerProfiles.DisplayName);
+            if (networkMatch != null) networkMatch.RenameLocalPlayer(LocalName());
+
+            Refresh();
         }
 
         private void OnDestroy()
@@ -85,6 +113,7 @@ namespace Triggle.UI
             if (startButton != null) startButton.onClick.RemoveAllListeners();
             if (leaveButton != null) leaveButton.onClick.RemoveAllListeners();
             if (backButton != null) backButton.onClick.RemoveAllListeners();
+            if (nameInput != null) nameInput.onEndEdit.RemoveAllListeners();
         }
 
         private void OnEnable()
@@ -95,6 +124,7 @@ namespace Triggle.UI
             {
                 networkMatch.RosterChanged += Refresh;
                 networkMatch.MatchStartedByHost += HandleMatchStartedByHost;
+                networkMatch.PlayerJoined += HandlePlayerJoined;
                 networkMatch.Desynced += ShowError;
                 networkMatch.StatusChanged += HandleStatusChanged;
             }
@@ -110,6 +140,7 @@ namespace Triggle.UI
             {
                 networkMatch.RosterChanged -= Refresh;
                 networkMatch.MatchStartedByHost -= HandleMatchStartedByHost;
+                networkMatch.PlayerJoined -= HandlePlayerJoined;
                 networkMatch.Desynced -= ShowError;
                 networkMatch.StatusChanged -= HandleStatusChanged;
             }
@@ -118,6 +149,8 @@ namespace Triggle.UI
         /// <summary>Opens the screen fresh. Called by the main menu.</summary>
         public void Show()
         {
+            if (nameInput != null) nameInput.SetTextWithoutNotify(PlayerProfiles.DisplayName);
+
             SetStatus("Host a room, or type a friend's code.", false);
             Refresh();
         }
@@ -132,11 +165,11 @@ namespace Triggle.UI
             SetStatus("Creating a room...", false);
             Refresh();
 
-            UgsSessionTransport transport = await rooms.HostAsync(SeatRoster.SeatCount, LocalName());
+            UgsSessionTransport transport = await rooms.HostAsync(LocalName());
 
             if (transport != null)
             {
-                networkMatch.Join(transport, LocalName());
+                networkMatch.Join(transport, LocalName(), rooms.LocalIdentity);
                 SetStatus("Room open. Read the code out, then press START.", false);
             }
 
@@ -157,7 +190,7 @@ namespace Triggle.UI
 
             if (transport != null)
             {
-                networkMatch.Join(transport, LocalName());
+                networkMatch.Join(transport, LocalName(), rooms.LocalIdentity);
                 SetStatus("Joined. Waiting for the host to start.", false);
             }
 
@@ -204,6 +237,25 @@ namespace Triggle.UI
         private void HandleMatchStartedByHost()
         {
             if (mainMenu != null) mainMenu.EnterGame();
+        }
+
+        /// <summary>Names the player who just arrived, rather than saying "someone".</summary>
+        /// <remarks>
+        /// The connection and the name arrive separately - Relay reports a peer as soon as the pipe is
+        /// up, and the name only when that peer's announcement lands - so the status line says the vague
+        /// thing first and is corrected here. Nothing is being waited for; these are simply two different
+        /// events.
+        /// </remarks>
+        private void HandlePlayerJoined(int seat, string name)
+        {
+            SetStatus($"{name} joined  -  {Occupancy()} in the room.", false);
+            Refresh();
+        }
+
+        private string Occupancy()
+        {
+            int count = networkMatch != null ? networkMatch.PlayerCount : 0;
+            return $"{count}/{UgsRoomService.RoomCapacity}";
         }
 
         /// <summary>
@@ -277,6 +329,9 @@ namespace Triggle.UI
             if (codeInput != null) codeInput.interactable = !inRoom && !_busy;
             if (leaveButton != null) leaveButton.gameObject.SetActive(inRoom);
 
+            // Editable at any time: renaming mid-room re-announces, so it stays useful after joining.
+            if (nameInput != null) nameInput.interactable = !_busy;
+
             if (roomCodeLabel != null)
                 roomCodeLabel.text = inRoom ? rooms.RoomCode : "- - - - - -";
 
@@ -286,6 +341,8 @@ namespace Triggle.UI
 
             if (startLabel != null)
                 startLabel.text = isHost ? "START GAME" : "HOST STARTS";
+
+            if (occupancyLabel != null) occupancyLabel.text = $"IN THE ROOM  -  {Occupancy()}";
 
             RefreshPlayerRows(count);
         }
@@ -340,10 +397,13 @@ namespace Triggle.UI
             Refresh();
         }
 
+        /// <summary>The name this device shows others online.</summary>
         private string LocalName()
         {
             PlayerProfiles.Load();
-            return PlayerProfiles.GetName(PlayerId.Player1, palette.GetDisplayName(PlayerId.Player1));
+
+            string name = PlayerProfiles.DisplayName;
+            return string.IsNullOrWhiteSpace(name) ? palette.GetDisplayName(PlayerId.Player1) : name;
         }
 
         private void OnValidate()

@@ -19,6 +19,7 @@ namespace Triggle.Core
 
         private const string PrefKeyPrefix = "triggle.player.name.";
         private const string ColorKeyPrefix = "triggle.player.color.";
+        private const string DisplayNameKey = "triggle.player.displayName";
 
         /// <summary>Number of colours in the palette a player can choose between.</summary>
         public const int ColorSlotCount = 4;
@@ -115,6 +116,39 @@ namespace Triggle.Core
             }
 
             PlayerPrefs.Save();
+        }
+
+        /// <summary>
+        /// The name this device shows other people online. Sanitised and persisted like any other.
+        /// </summary>
+        /// <remarks>
+        /// Kept separate from the per-seat names on purpose. Those describe whoever is sharing this
+        /// device for a hot-seat game and get retyped every time the seats change hands; this is the
+        /// device owner's own name, which should survive that and is what the other players in a room
+        /// see. Falls back to seat 1's name when it has never been set, so an existing player does not
+        /// suddenly appear as "Player".
+        /// </remarks>
+        public static string DisplayName
+        {
+            get
+            {
+                Load();
+
+                string stored = Sanitize(PlayerPrefs.GetString(DisplayNameKey, string.Empty));
+                if (!string.IsNullOrEmpty(stored)) return stored;
+
+                return GetRawName(PlayerId.Player1);
+            }
+            set
+            {
+                Load();
+                string clean = Sanitize(value);
+
+                if (string.IsNullOrEmpty(clean)) PlayerPrefs.DeleteKey(DisplayNameKey);
+                else PlayerPrefs.SetString(DisplayNameKey, clean);
+
+                PlayerPrefs.Save();
+            }
         }
 
         /// <summary>True when the player typed a name for this seat.</summary>

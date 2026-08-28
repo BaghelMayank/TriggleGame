@@ -39,6 +39,7 @@ namespace Triggle.EditorTools
 
             failures += CheckProtocol(report);
             failures += CheckLoopback(report);
+            failures += CheckSeatAllocation(report);
             failures += CheckCatalogueDeterminism(report);
             failures += CheckReplayConvergence(report);
 
@@ -61,7 +62,8 @@ namespace Triggle.EditorTools
 
             var cases = new List<NetMessage>
             {
-                NetMessage.Hello(2, "Mayank", 3),
+                NetMessage.Hello(2, "Mayank", 3, 998877),
+                NetMessage.AssignSeat(998877, 3),
                 NetMessage.StartMatch(4, 4, 3, 5),
                 NetMessage.PlaceBand(1, 173, 42),
                 NetMessage.Chat(3, 7, "Good game"),
@@ -212,6 +214,93 @@ namespace Triggle.EditorTools
             guest.Dispose();
 
             return failures;
+        }
+
+        // ================================================================== seats
+
+        /// <summary>
+        /// Three players where two claim the same seat, which is what happens on a real join race.
+        /// </summary>
+        /// <remarks>
+        /// Guests derive their seat from their own snapshot of the lobby roster, so two devices joining
+        /// at nearly the same instant can both read seat 2. The host used to record the first and drop
+        /// the second without a word - the player stayed connected, stayed in the lobby, and was
+        /// invisible to everyone, which is exactly what a three-device test turned up. The host now
+        /// reassigns instead, and this pins that down.
+        /// </remarks>
+        private static int CheckSeatAllocation(StringBuilder report)
+        {
+            report.AppendLine();
+            report.AppendLine("  Seat allocation");
+            report.AppendLine("  ---------------");
+
+            var hosts = new GameObject("~TriggleSeatHost") { hideFlags = HideFlags.HideAndDontSave };
+            var first = new GameObject("~TriggleSeatGuestA") { hideFlags = HideFlags.HideAndDontSave };
+            var second = new GameObject("~TriggleSeatGuestB") { hideFlags = HideFlags.HideAndDontSave };
+
+            try
+            {
+                NetworkMatch host = hosts.AddComponent<NetworkMatch>();
+                NetworkMatch guestA = first.AddComponent<NetworkMatch>();
+                NetworkMatch guestB = second.AddComponent<NetworkMatch>();
+
+                var hostPipe = new LoopbackTransport(1, true);
+                var pipeA = new LoopbackTransport(2, false);
+
+                // The collision: guest B read a stale roster and believes it is also seat 2.
+                var pipeB = new LoopbackTransport(2, false);
+
+                LoopbackTransport.Connect(hostPipe, pipeA, pipeB);
+
+                host.Join(hostPipe, "Host", 101);
+                guestA.Join(pipeA, "Guest A", 102);
+                guestB.Join(pipeB, "Guest B", 103);
+
+                // Several rounds: the correction is a reply, and the re-announcement is another.
+                for (int round = 0; round < 6; round++)
+                {
+                    hostPipe.Poll();
+                    pipeA.Poll();
+                    pipeB.Poll();
+                }
+
+                int failures = 0;
+
+                failures += Expect(report, host.PlayerCount == 3,
+                    $"host sees 3 players (saw {host.PlayerCount})");
+
+                failures += Expect(report, guestA.LocalSeat != guestB.LocalSeat,
+                    $"the two guests hold different seats (A={guestA.LocalSeat}, B={guestB.LocalSeat})");
+
+                failures += Expect(report, guestB.LocalSeat >= 1 && guestB.LocalSeat <= SeatRoster.SeatCount,
+                    $"the reassigned guest has a valid seat ({guestB.LocalSeat})");
+
+                failures += Expect(report, guestA.PlayerCount == 3 && guestB.PlayerCount == 3,
+                    $"both guests see everyone (A={guestA.PlayerCount}, B={guestB.PlayerCount})");
+
+                failures += Expect(report,
+                    host.NameOfSeat(guestB.LocalSeat) == "Guest B",
+                    $"the host has the reassigned guest's name at its new seat " +
+                    $"(seat {guestB.LocalSeat} is \"{host.NameOfSeat(guestB.LocalSeat)}\")");
+
+                hostPipe.Dispose();
+                pipeA.Dispose();
+                pipeB.Dispose();
+
+                return failures;
+            }
+            finally
+            {
+                Object.DestroyImmediate(second);
+                Object.DestroyImmediate(first);
+                Object.DestroyImmediate(hosts);
+            }
+        }
+
+        private static int Expect(StringBuilder report, bool condition, string description)
+        {
+            report.AppendLine($"    {(condition ? "ok  " : "FAIL")} {description}");
+            return condition ? 0 : 1;
         }
 
         // ================================================================== catalogue

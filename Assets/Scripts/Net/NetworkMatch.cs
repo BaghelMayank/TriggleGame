@@ -38,9 +38,19 @@ namespace Triggle.Net
         private bool _desynced;
         private bool _announced;
         private string _localName = "Player";
+        private int _localIdentity;
 
-        /// <summary>The seat this device plays. Zero when there is no session.</summary>
-        public int LocalSeat => _transport?.LocalSeat ?? 0;
+        /// <summary>Seat each known peer holds, keyed by its stable identity.</summary>
+        private readonly Dictionary<int, int> _seatByIdentity = new Dictionary<int, int>(4);
+
+        /// <summary>
+        /// The seat this device plays. Zero when there is no session.
+        /// </summary>
+        /// <remarks>
+        /// Held here rather than read from the transport, because the host can move a guest to a
+        /// different seat after it connects and the transport has no say in that.
+        /// </remarks>
+        public int LocalSeat { get; private set; }
 
         /// <summary>True while a network session is running.</summary>
         public bool IsOnline => _transport != null && _transport.State == SessionStatus.Connected;
@@ -56,6 +66,9 @@ namespace Triggle.Net
 
         /// <summary>Raised whenever a player joins or leaves the room.</summary>
         public event Action RosterChanged;
+
+        /// <summary>Raised when a player is first seen, with the seat they took and the name they gave.</summary>
+        public event Action<int, string> PlayerJoined;
 
         /// <summary>
         /// Raised on a guest when the host starts the match, after settings have been applied. The
@@ -104,7 +117,11 @@ namespace Triggle.Net
 
         /// <summary>Takes ownership of a connected transport and starts relaying.</summary>
         /// <param name="localName">Name this device announces to the others.</param>
-        public void Join(ISessionTransport transport, string localName)
+        /// <param name="localIdentity">
+        /// Stable id for this device, independent of seat - the hashed Lobby player id in a real session.
+        /// Seats are the host's to assign, so identity is what a peer is actually recognised by.
+        /// </param>
+        public void Join(ISessionTransport transport, string localName, int localIdentity)
         {
             Leave();
 
@@ -118,14 +135,20 @@ namespace Triggle.Net
             _desynced = false;
             _announced = false;
             _localName = localName;
+            _localIdentity = localIdentity;
+            LocalSeat = _transport.LocalSeat;
 
             _roster.Clear();
-            _roster[_transport.LocalSeat] = localName;
+            _seatByIdentity.Clear();
+
+            _roster[LocalSeat] = localName;
+            _seatByIdentity[localIdentity] = LocalSeat;
             RosterChanged?.Invoke();
 
-            // The host is already connected the moment it starts listening; a guest is not, so its
-            // announcement waits for the transport to say so.
-            if (_transport.State == SessionStatus.Connected) Announce();
+            // Queued immediately rather than waiting for the transport to report Connected. Send holds
+            // it until the pipe is up, so this costs nothing and removes a round of event ordering from
+            // the moment a player becomes visible to everyone else.
+            Announce();
         }
 
         /// <summary>Raised when the transport's connection state changes.</summary>
@@ -154,9 +177,26 @@ namespace Triggle.Net
             if (_announced || _transport == null) return;
 
             _announced = true;
-            _transport.Send(NetMessage.Hello(_transport.LocalSeat, _localName,
-                                             PlayerProfiles.GetColorIndex((PlayerId)_transport.LocalSeat)));
+            _transport.Send(BuildHello());
         }
+
+        /// <summary>Changes the name this device shows others, and tells them about it.</summary>
+        public void RenameLocalPlayer(string localName)
+        {
+            if (string.IsNullOrWhiteSpace(localName) || localName == _localName) return;
+
+            _localName = localName;
+
+            if (LocalSeat > 0) _roster[LocalSeat] = localName;
+            RosterChanged?.Invoke();
+
+            _transport?.Send(BuildHello());
+        }
+
+        private NetMessage BuildHello() =>
+            NetMessage.Hello(LocalSeat, _localName,
+                             PlayerProfiles.GetColorIndex((PlayerId)Mathf.Clamp(LocalSeat, 1, SeatRoster.SeatCount)),
+                             _localIdentity);
 
         /// <summary>Ends the session and disposes the transport.</summary>
         public void Leave()
@@ -169,6 +209,7 @@ namespace Triggle.Net
             _transport = null;
 
             _roster.Clear();
+            _seatByIdentity.Clear();
             RosterChanged?.Invoke();
         }
 
@@ -261,6 +302,10 @@ namespace Triggle.Net
                     ApplyHello(message);
                     break;
 
+                case NetMessageKind.AssignSeat:
+                    ApplyAssignedSeat(message);
+                    break;
+
                 case NetMessageKind.StartMatch:
                     ApplyMatchSettings(message);
                     break;
@@ -306,17 +351,86 @@ namespace Triggle.Net
                 return;
             }
 
-            if (message.Seat <= 0 || message.Seat > SeatRoster.SeatCount) return;
-            if (_roster.ContainsKey(message.Seat)) return;
+            if (message.C == _localIdentity) return;   // our own announcement, forwarded back to us
 
-            _roster[message.Seat] = message.Text;
+            // Already known: refresh the name, but do not re-seat or re-reply, or two peers would keep
+            // answering each other forever.
+            if (_seatByIdentity.TryGetValue(message.C, out int known))
+            {
+                _roster[known] = message.Text;
+                RosterChanged?.Invoke();
+                return;
+            }
+
+            int seat = message.Seat;
+
+            // The host owns seat allocation. Guests derive a seat from their own lobby snapshot, and two
+            // devices joining at nearly the same instant can both read the same one - in which case the
+            // second used to be dropped without a word, leaving a player connected, in the lobby, and
+            // invisible to everyone. The host moves them instead.
+            if (_transport != null && _transport.IsHost)
+            {
+                if (seat <= 0 || seat > SeatRoster.SeatCount || _roster.ContainsKey(seat))
+                {
+                    int free = LowestFreeSeat();
+                    if (free == 0)
+                    {
+                        Log($"room is full; no seat for \"{message.Text}\"");
+                        return;
+                    }
+
+                    if (seat != free)
+                        Log($"seat {seat} was taken, moving \"{message.Text}\" to seat {free}");
+
+                    seat = free;
+                }
+
+                _transport.Send(NetMessage.AssignSeat(message.C, seat));
+            }
+            else if (seat <= 0 || seat > SeatRoster.SeatCount || _roster.ContainsKey(seat))
+            {
+                // A guest cannot resolve a clash; the host's AssignSeat settles it a moment later.
+                return;
+            }
+
+            _roster[seat] = message.Text;
+            _seatByIdentity[message.C] = seat;
+
+            RosterChanged?.Invoke();
+            PlayerJoined?.Invoke(seat, message.Text);
+
+            Log($"seat {seat} joined as \"{message.Text}\" ({_roster.Count} in room)");
+
+            // Answer so the new arrival learns about this device - the only way a guest finds out who
+            // was already here, since Relay keeps no roster of its own.
+            _transport?.Send(BuildHello());
+        }
+
+        /// <summary>Adopts a seat the host handed out, if it is addressed to this device.</summary>
+        private void ApplyAssignedSeat(NetMessage message)
+        {
+            if (message.C != _localIdentity || message.Seat == LocalSeat) return;
+
+            Log($"host moved us from seat {LocalSeat} to seat {message.Seat}");
+
+            _roster.Remove(LocalSeat);
+            LocalSeat = message.Seat;
+
+            _roster[LocalSeat] = _localName;
+            _seatByIdentity[_localIdentity] = LocalSeat;
+
             RosterChanged?.Invoke();
 
-            Log($"seat {message.Seat} joined as \"{message.Text}\" ({_roster.Count} in room)");
+            // Re-announce under the corrected seat so everyone records us in the right place.
+            _transport?.Send(BuildHello());
+        }
 
-            if (_transport != null)
-                _transport.Send(NetMessage.Hello(_transport.LocalSeat, _localName,
-                                                 PlayerProfiles.GetColorIndex((PlayerId)_transport.LocalSeat)));
+        private int LowestFreeSeat()
+        {
+            for (int seat = 1; seat <= SeatRoster.SeatCount; seat++)
+                if (!_roster.ContainsKey(seat)) return seat;
+
+            return 0;
         }
 
         private void ApplyMatchSettings(NetMessage message)

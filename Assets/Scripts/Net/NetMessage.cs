@@ -25,7 +25,13 @@ namespace Triggle.Net
         NextRound = 5,
 
         /// <summary>A player left the match deliberately.</summary>
-        Resign = 6
+        Resign = 6,
+
+        /// <summary>
+        /// Host to one player: this is your seat. Addressed by identity, not by seat, because the whole
+        /// point is that the seat the guest picked for itself may have been wrong.
+        /// </summary>
+        AssignSeat = 7
     }
 
     /// <summary>
@@ -61,13 +67,27 @@ namespace Triggle.Net
 
         // ------------------------------------------------------------------ constructors
 
-        public static NetMessage Hello(int seat, string playerName, int colorSlot) => new NetMessage
+        /// <param name="identity">
+        /// Stable id for the device, independent of seat. Seats can be reassigned by the host; this is
+        /// how a peer is recognised across that.
+        /// </param>
+        public static NetMessage Hello(int seat, string playerName, int colorSlot, int identity) =>
+            new NetMessage
+            {
+                Kind = NetMessageKind.Hello,
+                Seat = seat,
+                A = ProtocolVersion,
+                B = colorSlot,
+                C = identity,
+                Text = playerName
+            };
+
+        /// <summary>Host to a specific player, addressed by <paramref name="identity"/>.</summary>
+        public static NetMessage AssignSeat(int identity, int seat) => new NetMessage
         {
-            Kind = NetMessageKind.Hello,
+            Kind = NetMessageKind.AssignSeat,
             Seat = seat,
-            A = ProtocolVersion,
-            B = colorSlot,
-            Text = playerName
+            C = identity
         };
 
         public static NetMessage StartMatch(int radius, int pegsPerBand, int playerCount, int rounds) =>

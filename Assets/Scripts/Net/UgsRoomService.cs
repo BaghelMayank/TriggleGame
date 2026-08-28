@@ -31,6 +31,17 @@ namespace Triggle.Net
     [DisallowMultipleComponent]
     public sealed class UgsRoomService : MonoBehaviour
     {
+        /// <summary>
+        /// Seats an online room always has. Not a setting.
+        /// </summary>
+        /// <remarks>
+        /// The player-count option in the lobby is for <b>local</b> play, where one device has to know
+        /// how many people are sharing it. Online there is nothing to configure: whoever has the code can
+        /// join until the table is full, and the match starts with however many turned up. Tying room
+        /// size to that setting would mean the host had to predict the guest list before sharing a code.
+        /// </remarks>
+        public const int RoomCapacity = 4;
+
         /// <summary>Lobby data key holding the Relay join code.</summary>
         private const string RelayCodeKey = "relayJoinCode";
 
@@ -52,6 +63,19 @@ namespace Triggle.Net
 
         /// <summary>True while this device owns the room.</summary>
         public bool IsHost { get; private set; }
+
+        /// <summary>
+        /// Stable id for this device within a session, derived from the signed-in player id.
+        /// </summary>
+        /// <remarks>
+        /// Seats move - the host reassigns them when two guests claim the same one - so the network
+        /// layer needs something that does not. Hashed to an int only so it fits the protocol's fixed
+        /// message shape; four players make an accidental collision a non-issue.
+        /// </remarks>
+        public int LocalIdentity =>
+            AuthenticationService.Instance.IsSignedIn
+                ? AuthenticationService.Instance.PlayerId.GetHashCode()
+                : 0;
 
         /// <summary>Raised with a player-facing message when something goes wrong.</summary>
         public event Action<string> Failed;
@@ -93,11 +117,11 @@ namespace Triggle.Net
         /// Allocates a Relay endpoint, publishes its code in a new lobby, and returns a connected
         /// transport. Null on failure, with <see cref="Failed"/> already raised.
         /// </summary>
-        public async Task<UgsSessionTransport> HostAsync(int maxPlayers, string playerName)
+        public async Task<UgsSessionTransport> HostAsync(string playerName)
         {
             if (!await EnsureSignedInAsync()) return null;
 
-            maxPlayers = Mathf.Clamp(maxPlayers, 2, 4);
+            const int maxPlayers = RoomCapacity;
 
             try
             {

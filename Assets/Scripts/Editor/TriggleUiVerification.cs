@@ -110,6 +110,8 @@ namespace Triggle.EditorTools
             var clipped = new List<string>();
             var blocked = new List<string>();
 
+            CheckEmoteSprites(report, clipped);
+
             RectTransform root = canvas.GetComponent<RectTransform>();
             RenderMode originalMode = canvas.renderMode;
             Vector2 originalSize = root.sizeDelta;
@@ -198,6 +200,68 @@ namespace Triggle.EditorTools
             float scale = Mathf.Pow(2f, Mathf.Lerp(logWidth, logHeight, match));
 
             return scale <= 0f ? Vector2.zero : new Vector2(screen.x / scale, screen.y / scale);
+        }
+
+        /// <summary>
+        /// Checks every quick-chat emoji actually points at a drawable sprite.
+        /// </summary>
+        /// <remarks>
+        /// A sprite tag that resolves to nothing is not an error in TextMeshPro - it quietly falls back
+        /// to the sheet's <c>.notdef</c> entry, which draws a question mark. Nothing is logged, the tag
+        /// is syntactically fine, and the only symptom is a row of question marks in the chat panel. The
+        /// EmojiOne sheet invites exactly that: its entries are inconsistently named, some after their
+        /// code point and some in prose.
+        /// </remarks>
+        private static void CheckEmoteSprites(StringBuilder report, List<string> problems)
+        {
+            const string path = "Assets/TextMesh Pro/Resources/Sprite Assets/EmojiOne.asset";
+
+            var sheet = AssetDatabase.LoadAssetAtPath<TMP_SpriteAsset>(path);
+            if (sheet == null)
+            {
+                problems.Add($"emoji: the sprite sheet is missing from {path}");
+                return;
+            }
+
+            int usable = 0;
+
+            for (int id = 0; id < ChatEmotes.Count; id++)
+            {
+                int index = ChatEmotes.Get(id).Index;
+                string name = SpriteNameAt(sheet, index);
+
+                if (name == null)
+                {
+                    problems.Add($"emoji {id}: index {index} is outside the sheet");
+                    continue;
+                }
+
+                // The sheet's placeholder. Landing on it is what draws a question mark.
+                if (name.Contains("notdef"))
+                {
+                    problems.Add($"emoji {id}: index {index} is the sheet's .notdef placeholder");
+                    continue;
+                }
+
+                usable++;
+            }
+
+            report.AppendLine();
+            report.AppendLine($"  Emoji: {usable}/{ChatEmotes.Count} resolve to a drawable sprite");
+        }
+
+        private static string SpriteNameAt(TMP_SpriteAsset sheet, int index)
+        {
+            if (sheet.spriteCharacterTable != null && index < sheet.spriteCharacterTable.Count)
+            {
+                TMP_SpriteCharacter character = sheet.spriteCharacterTable[index];
+                if (character != null) return character.name ?? string.Empty;
+            }
+
+            if (sheet.spriteInfoList != null && index < sheet.spriteInfoList.Count)
+                return sheet.spriteInfoList[index].name ?? string.Empty;
+
+            return null;
         }
 
         private static Canvas FindCanvas()

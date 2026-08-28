@@ -37,10 +37,20 @@ namespace Triggle.EditorTools
         private const float ToleranceUnits = 0.5f;
 
         /// <summary>
-        /// How far two controls may intersect before it counts. Generous, because a text rect is
-        /// routinely a little taller than the glyphs inside it.
+        /// How far two controls may intersect before it counts. Small, because overlap is measured
+        /// against rendered glyph bounds rather than text rects.
         /// </summary>
-        private const float OverlapTolerance = 6f;
+        private const float OverlapTolerance = 2f;
+
+        /// <summary>
+        /// Alpha at or above which an image is treated as hiding whatever is behind it.
+        /// </summary>
+        /// <remarks>
+        /// The panels are built from translucent fills and glows that are meant to be seen through, so a
+        /// low bar would flag the entire neon style. This is the level at which text underneath stops
+        /// being legible.
+        /// </remarks>
+        private const float OpaqueAlpha = 0.6f;
 
         private readonly struct Device
         {
@@ -235,6 +245,7 @@ namespace Triggle.EditorTools
             AuditClipping(panel, root, device, ref controls, ref tightest, clipped);
             AuditReachability(panel, root, device, blocked);
             AuditOverlap(panel, root, device, blocked);
+            AuditCoveredText(panel, root, device, blocked);
         }
 
         /// <summary>
@@ -323,6 +334,86 @@ namespace Triggle.EditorTools
             return Rect.MinMaxRect(Mathf.Min(a.x, b.x), Mathf.Min(a.y, b.y),
                                    Mathf.Max(a.x, b.x), Mathf.Max(a.y, b.y));
         }
+
+        /// <summary>
+        /// Flags a label with a solid image painted over it.
+        /// </summary>
+        /// <remarks>
+        /// The gap the other passes leave. Reachability only considers Selectables, and overlap only
+        /// compares controls with each other - so an <see cref="Image"/> drawn after a label and sitting
+        /// on top of it is invisible to both, which is precisely the "the text is set but I cannot see
+        /// it" failure. uGUI draws in hierarchy order, so anything later that covers the glyphs and is
+        /// solid enough to read through hides them.
+        /// </remarks>
+        private static void AuditCoveredText(RectTransform panel, RectTransform root, string device,
+                                              List<string> problems)
+        {
+            bool wasActive = panel.gameObject.activeSelf;
+            if (!wasActive) panel.gameObject.SetActive(true);
+
+            try
+            {
+                var safeArea = panel.GetComponentInChildren<CanvasSafeArea>(true);
+                if (safeArea == null) return;
+
+                LayoutRebuilder.ForceRebuildLayoutImmediate(panel);
+                Canvas.ForceUpdateCanvases();
+
+                List<Graphic> order = DrawOrder(panel);
+
+                for (int i = 0; i < order.Count; i++)
+                {
+                    if (order[i] is not TMP_Text label) continue;
+                    if (string.IsNullOrWhiteSpace(label.text) || label.color.a < 0.05f) continue;
+
+                    Rect glyphs = BoundsOf(label, label.rectTransform, root);
+
+                    for (int j = i + 1; j < order.Count; j++)
+                    {
+                        if (order[j] is not Image cover) continue;
+                        if (cover.color.a < OpaqueAlpha || IsHollow(cover.sprite)) continue;
+                        if (cover.transform.IsChildOf(label.transform)) continue;
+                        if (label.transform.IsChildOf(cover.transform)) continue;
+
+                        Rect over = LocalRect(cover.rectTransform, root);
+                        if (!Contains(over, glyphs)) continue;
+
+                        problems.Add($"{device}: {Path(label.transform, panel)} is covered by " +
+                                     $"{Path(cover.transform, panel)}");
+                        break;
+                    }
+                }
+            }
+            finally
+            {
+                if (!wasActive) panel.gameObject.SetActive(false);
+            }
+        }
+
+        /// <summary>
+        /// True for the generated sprites whose middle is empty - outlines and glows.
+        /// </summary>
+        /// <remarks>
+        /// Their rects cover whatever they frame, but their pixels are only the border, so treating them
+        /// as covers reports every label inside a neon control. Recognised by name because they all come
+        /// from one generator; sampling the texture instead would need it marked readable.
+        /// </remarks>
+        private static bool IsHollow(Sprite sprite)
+        {
+            if (sprite == null) return false;   // no sprite at all draws a solid quad
+
+            string name = sprite.name;
+            return name.EndsWith("Outline") || name.EndsWith("Glow");
+        }
+
+        /// <summary>True when <paramref name="inner"/> is entirely inside <paramref name="outer"/>.</summary>
+        /// <remarks>
+        /// Full containment, not intersection: a solid panel clipping the corner of a label is usually
+        /// the design, whereas one swallowing it whole is the fault being looked for.
+        /// </remarks>
+        private static bool Contains(Rect outer, Rect inner) =>
+            outer.xMin <= inner.xMin + OverlapTolerance && outer.xMax >= inner.xMax - OverlapTolerance &&
+            outer.yMin <= inner.yMin + OverlapTolerance && outer.yMax >= inner.yMax - OverlapTolerance;
 
         /// <summary>
         /// True when two labels are stacked on purpose rather than by accident.

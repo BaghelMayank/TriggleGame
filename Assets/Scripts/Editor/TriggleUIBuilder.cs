@@ -513,8 +513,10 @@ namespace Triggle.EditorTools
                 TextAlignmentOptions.Center, new Vector2(0.5f, 1f), new Vector2(0f, -684f),
                 new Vector2(880f, 22f), "Single round", InkFaint);
 
+            // 190, not 148: START occupies 54..138 from the bottom, so a status line at 148 sat 3 units
+            // inside it - close enough that a short message looked fine and a long one did not.
             refs.Status = CreateText(c, "Status", _bodyLight, 17f, TextAlignmentOptions.Center,
-                new Vector2(0.5f, 0f), new Vector2(0f, 148f), new Vector2(880f, 26f),
+                new Vector2(0.5f, 0f), new Vector2(0f, 190f), new Vector2(880f, 26f),
                 "Host a room, or type a friend's code.", InkDim);
 
             // --- actions -------------------------------------------------------
@@ -1098,6 +1100,9 @@ namespace Triggle.EditorTools
 
         private const int ChatLogLines = 6;
 
+        /// <summary>How far a corner player card reaches in from the screen edge, in canvas units.</summary>
+        private const float HudCardEdge = 420f;
+
         /// <summary>
         /// The chat panel: a slim tab on the left edge that opens a log and a grid of quick-chat phrases.
         /// </summary>
@@ -1264,8 +1269,17 @@ namespace Triggle.EditorTools
                 hud.Cards.Add(BuildHudCard(panel, i, corners[i], offsets[i], palette));
 
             // --- turn banner --------------------------------------------------
+            // Stretched between the bottom player cards rather than a fixed 820 wide. Those cards reach
+            // 420 units in from each edge, so on a narrow landscape screen - 1350 units at 5:4 - two
+            // cards and a fixed banner need 1604 and cannot share the row: the banner's fill is opaque
+            // and painted over the cards' score and rounds labels, which then simply were not there.
             Neon banner = CreateNeon(panel, "TurnBanner", new Vector2(0.5f, 0f), new Vector2(0f, 82f),
                 new Vector2(820f, 92f), GlassFill, Cyan, Cyan);
+
+            banner.Root.anchorMin = new Vector2(0f, 0f);
+            banner.Root.anchorMax = new Vector2(1f, 0f);
+            banner.Root.offsetMin = new Vector2(HudCardEdge + 20f, 36f);
+            banner.Root.offsetMax = new Vector2(-(HudCardEdge + 20f), 128f);
             hud.TurnBanner = banner.Fill;
             hud.TurnPunch = banner.Root;
 
@@ -1275,6 +1289,17 @@ namespace Triggle.EditorTools
             hud.TurnLabel = CreateText(banner.Root, "TurnLabel", _heading, 32f,
                 TextAlignmentOptions.Center, new Vector2(0.5f, 0.5f), new Vector2(24f, 0f),
                 new Vector2(680f, 48f), "Player 1's Turn - Stretch 4 Pegs", Ink);
+
+            // Fills the banner, which is now as wide as the screen allows rather than a fixed size, and
+            // shrinks the text rather than clipping it when a long name meets a narrow screen.
+            hud.TurnLabel.rectTransform.anchorMin = new Vector2(0f, 0.5f);
+            hud.TurnLabel.rectTransform.anchorMax = new Vector2(1f, 0.5f);
+            hud.TurnLabel.rectTransform.offsetMin = new Vector2(96f, -24f);
+            hud.TurnLabel.rectTransform.offsetMax = new Vector2(-24f, 24f);
+
+            hud.TurnLabel.enableAutoSizing = true;
+            hud.TurnLabel.fontSizeMin = 20f;
+            hud.TurnLabel.fontSizeMax = 32f;
 
             // --- status toast -------------------------------------------------
             // The only element authored wider than the narrowest landscape canvas (1350 units at 5:4),

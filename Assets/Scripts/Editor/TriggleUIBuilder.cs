@@ -144,7 +144,7 @@ namespace Triggle.EditorTools
             var hudController = canvasGo.AddComponent<GameUIController>();
             var pause = canvasGo.AddComponent<PausePanelController>();
             var chat = canvasGo.AddComponent<ChatPanelController>();
-            var emotePopups = canvasGo.AddComponent<EmotePopupController>();
+            var reactions = canvasGo.AddComponent<EmoteReactionController>();
             var multiplayer = canvasGo.AddComponent<MultiplayerPanelController>();
 
             RectTransform root = canvasGo.GetComponent<RectTransform>();
@@ -169,7 +169,7 @@ namespace Triggle.EditorTools
             // the listener persists in the saved scene (an AddListener call here would not).
             WirePause(pause, context, menu, settings, pauseRefs, hud.MenuButton.Button);
             WireChat(chat, context, hud.Chat);
-            WireEmotePopups(emotePopups, context, chat, hud);
+            WireReactions(reactions, context, chat, hud);
             WireMultiplayer(multiplayer, context, menu, multiplayerRefs);
 
             // Saved-scene state: root menu visible, everything else hidden.
@@ -1087,8 +1087,9 @@ namespace Triggle.EditorTools
             public Neon MenuButton;
             public List<HudCard> Cards = new List<HudCard>(4);
             public ChatPanel Chat;
-            public CanvasGroup[] EmoteSlots = new CanvasGroup[EmotePopupSlots];
-            public TMP_Text[] EmoteLabels = new TMP_Text[EmotePopupSlots];
+            public RectTransform EmoteStage;
+            public TMP_Text EmoteTemplate, EmoteCaption;
+            public CanvasGroup EmoteCaptionGroup;
         }
 
         private sealed class ChatPanel
@@ -1107,8 +1108,6 @@ namespace Triggle.EditorTools
 
         private const int ChatLogLines = 5;
 
-        /// <summary>How many emoji popups can be on screen at once.</summary>
-        private const int EmotePopupSlots = 3;
 
         /// <summary>How far a corner player card reaches in from the screen edge, in canvas units.</summary>
         private const float HudCardEdge = 420f;
@@ -1362,29 +1361,38 @@ namespace Triggle.EditorTools
             // --- chat ---------------------------------------------------------
             hud.Chat = BuildChat(panel);
 
-            // --- emoji popups --------------------------------------------------
-            // Right edge, mirroring the chat tab, inside the same band between the corner player cards.
-            // Nothing here is a raycast target, so a popup cannot swallow a peg click on the board.
-            RectTransform emotes = CreateColumn(panel, "EmotePopups", new Vector2(1f, 0.5f),
-                new Vector2(-230f, -27f), new Vector2(400f, 200f), 8f, TextAnchor.LowerRight);
+            // --- emoji reactions -----------------------------------------------
+            // A stage on the right edge, mirroring the chat tab, inside the same band between the corner
+            // player cards. Emoji launch from its bottom edge and climb to its top, so the rect's height
+            // is the flight path. Its pivot is at the bottom, which is what makes a child at y=0 sit on
+            // the launch line and y=height leave at the top.
+            RectTransform stage = CreateRect(panel, "EmoteStage", new Vector2(1f, 0.5f),
+                new Vector2(-190f, -27f), new Vector2(300f, 560f));
+            stage.pivot = new Vector2(0.5f, 0f);
+            stage.anchoredPosition = new Vector2(-190f, -307f);
 
-            for (int i = 0; i < EmotePopupSlots; i++)
-            {
-                RectTransform slot = CreateRect(emotes, $"EmoteSlot{i}", Vector2.zero, Vector2.zero,
-                    new Vector2(400f, 56f));
-                SetLayoutSize(slot, 400f, 56f);
+            hud.EmoteStage = stage;
 
-                hud.EmoteSlots[i] = slot.gameObject.AddComponent<CanvasGroup>();
-                hud.EmoteSlots[i].blocksRaycasts = false;
-                hud.EmoteSlots[i].interactable = false;
-                hud.EmoteSlots[i].alpha = 0f;
+            var stageGroup = stage.gameObject.AddComponent<CanvasGroup>();
+            stageGroup.blocksRaycasts = false;
+            stageGroup.interactable = false;
 
-                hud.EmoteLabels[i] = CreateText(slot, "Label", _body, 24f, TextAlignmentOptions.Right,
-                    new Vector2(0.5f, 0.5f), Vector2.zero, new Vector2(400f, 44f), string.Empty, Ink);
+            // Cloned per floating emoji at runtime and pooled, so a burst costs no scene objects here.
+            hud.EmoteTemplate = CreateText(stage, "ReactionTemplate", _body, 46f,
+                TextAlignmentOptions.Center, new Vector2(0.5f, 0f), Vector2.zero,
+                new Vector2(90f, 90f), string.Empty, Ink);
+            hud.EmoteTemplate.enableWordWrapping = false;
 
-                hud.EmoteLabels[i].enableWordWrapping = false;
-                hud.EmoteLabels[i].overflowMode = TextOverflowModes.Ellipsis;
-            }
+            RectTransform caption = CreateRect(stage, "ReactionCaption", new Vector2(0.5f, 0f),
+                new Vector2(0f, -34f), new Vector2(300f, 30f));
+
+            hud.EmoteCaptionGroup = caption.gameObject.AddComponent<CanvasGroup>();
+            hud.EmoteCaptionGroup.blocksRaycasts = false;
+            hud.EmoteCaptionGroup.alpha = 0f;
+
+            hud.EmoteCaption = CreateText(caption, "Label", _body, 19f, TextAlignmentOptions.Center,
+                new Vector2(0.5f, 0.5f), Vector2.zero, new Vector2(300f, 28f), string.Empty, Ink);
+            hud.EmoteCaption.overflowMode = TextOverflowModes.Ellipsis;
 
             return hud;
         }
@@ -1672,8 +1680,8 @@ namespace Triggle.EditorTools
             }
         }
 
-        private static void WireEmotePopups(EmotePopupController controller, Context context,
-                                             ChatPanelController chat, Hud hud)
+        private static void WireReactions(EmoteReactionController controller, Context context,
+                                           ChatPanelController chat, Hud hud)
         {
             using var so = new SerializedWiring(controller);
 
@@ -1681,14 +1689,10 @@ namespace Triggle.EditorTools
             so.Ref("palette", context.Palette);
             so.Ref("networkMatch", context.Net);
 
-            so.ArraySize("slotGroups", EmotePopupSlots);
-            so.ArraySize("slotLabels", EmotePopupSlots);
-
-            for (int i = 0; i < EmotePopupSlots; i++)
-            {
-                so.Ref($"slotGroups.Array.data[{i}]", hud.EmoteSlots[i]);
-                so.Ref($"slotLabels.Array.data[{i}]", hud.EmoteLabels[i]);
-            }
+            so.Ref("stage", hud.EmoteStage);
+            so.Ref("template", hud.EmoteTemplate);
+            so.Ref("captionLabel", hud.EmoteCaption);
+            so.Ref("captionGroup", hud.EmoteCaptionGroup);
         }
 
         // ==================================================================== wiring

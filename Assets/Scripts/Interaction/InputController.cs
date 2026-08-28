@@ -12,13 +12,29 @@ namespace Triggle.Interaction
     /// </summary>
     /// <remarks>
     /// Uses the legacy Input Manager (the project's Active Input Handling setting), so it works on
-    /// desktop and touch without extra packages. Selection rules:
+    /// desktop and touch without extra packages.
+    /// <para>
+    /// Two schemes, because the two devices are good at different things.
+    /// </para>
+    /// <para>
+    /// <b>Tap</b>, wherever there is a mouse:
     /// <list type="bullet">
     /// <item>Clicking a legal peg appends it; clicking an already-selected peg removes it.</item>
     /// <item>Clicking empty space, right-clicking or pressing Escape clears the buffer.</item>
     /// <item>Clicking an illegal peg clears the buffer (configurable) and reports why.</item>
     /// <item>Reaching the required peg count submits the move automatically.</item>
     /// </list>
+    /// </para>
+    /// <para>
+    /// <b>Drag</b>, on a handset: press a peg and pull across the run. Tapping four small pegs in a row
+    /// is awkward with a finger - every one is a chance to miss, and a miss clears the lot - whereas a
+    /// drag is a single continuous gesture with the band following as it goes. Reversing onto the
+    /// previous peg backs up a step. The move submits the instant the run is complete, under the finger.
+    /// </para>
+    /// <para>
+    /// The two paths are kept separate rather than unified: tap is what desktop players already know,
+    /// and it should not shift underneath them to accommodate touch.
+    /// </para>
     /// </remarks>
     [DisallowMultipleComponent]
     public sealed class InputController : MonoBehaviour
@@ -45,9 +61,42 @@ namespace Triggle.Interaction
         [Tooltip("Ignore clicks that land on UI. Requires an EventSystem in the scene.")]
         [SerializeField] private bool blockWhenPointerOverUI = true;
 
+        [Header("Selection Scheme")]
+        [Tooltip("Auto drags on a touch device and taps everywhere else. Force one to test the other.")]
+        [SerializeField] private SelectionScheme selectionScheme = SelectionScheme.Auto;
+
+        /// <summary>How a band is picked out.</summary>
+        public enum SelectionScheme
+        {
+            /// <summary>Drag on a touch-only device, tap wherever there is a mouse.</summary>
+            Auto,
+
+            /// <summary>Click one peg at a time.</summary>
+            Tap,
+
+            /// <summary>Hold and drag across the run.</summary>
+            Drag
+        }
+
+        /// <summary>
+        /// True when a band is drawn by dragging rather than tapping.
+        /// </summary>
+        /// <remarks>
+        /// A mouse decides it, not the presence of a touchscreen: plenty of laptops report
+        /// <see cref="Input.touchSupported"/> while the player is using a trackpad, and tapping is the
+        /// better scheme there. A handset has no mouse, so it drags.
+        /// </remarks>
+        private bool UseDrag => selectionScheme switch
+        {
+            SelectionScheme.Tap => false,
+            SelectionScheme.Drag => true,
+            _ => Input.touchSupported && !Input.mousePresent
+        };
+
         private readonly List<Peg> _selection = new List<Peg>(4);
         private readonly HashSet<Peg> _legalNextPegs = new HashSet<Peg>();
         private Peg _hoveredPeg;
+        private bool _dragging;
 
         /// <summary>Pegs picked so far this turn, in click order.</summary>
         public IReadOnlyList<Peg> Selection => _selection;
@@ -105,7 +154,7 @@ namespace Triggle.Interaction
                 return;
             }
 
-            if (!TryGetPointerPosition(out Vector3 pointer, out bool pressedThisFrame))
+            if (!TryGetPointer(out Vector3 pointer, out PointerPhase phase))
             {
                 SetHovered(null);
                 return;
@@ -114,7 +163,16 @@ namespace Triggle.Interaction
             Peg peg = RaycastPeg(pointer);
             SetHovered(peg);
 
-            if (!pressedThisFrame) return;
+            if (UseDrag) UpdateDrag(peg, phase);
+            else UpdateTap(peg, phase);
+        }
+
+        /// <summary>
+        /// Tap to pick, one peg at a time. The desktop scheme, unchanged.
+        /// </summary>
+        private void UpdateTap(Peg peg, PointerPhase phase)
+        {
+            if (phase != PointerPhase.Began) return;
             if (blockWhenPointerOverUI && IsPointerOverUI()) return;
 
             if (peg == null) ClearSelection();       // click outside the board cancels
@@ -122,28 +180,131 @@ namespace Triggle.Interaction
         }
 
         /// <summary>
-        /// Reads pointer position from touch when available, otherwise from the mouse.
-        /// <paramref name="pressedThisFrame"/> is true on the frame the primary button/touch went down.
+        /// Draw the band by dragging across the pegs, the way you would stretch a real one.
         /// </summary>
-        private bool TryGetPointerPosition(out Vector3 position, out bool pressedThisFrame)
+        /// <remarks>
+        /// Tapping four small pegs in a row is genuinely awkward on a phone: each one is a separate
+        /// chance to miss, and a miss clears the whole selection. Dragging is one continuous gesture that
+        /// a finger is good at, and the band follows as it goes so a mistake is visible before it counts.
+        /// <para>
+        /// Dragging back onto the previous peg removes the last one, so a wrong turn is undone by
+        /// reversing rather than by lifting and starting over.
+        /// </para>
+        /// </remarks>
+        private void UpdateDrag(Peg peg, PointerPhase phase)
+        {
+            switch (phase)
+            {
+                case PointerPhase.Began:
+                    if (blockWhenPointerOverUI && IsPointerOverUI()) return;
+
+                    ClearSelection();
+
+                    // Starting on empty board is a legitimate way to cancel, so the drag only begins
+                    // when a peg is actually under the finger.
+                    if (peg == null) return;
+
+                    _dragging = true;
+                    TryExtend(peg);
+                    return;
+
+                case PointerPhase.Held:
+                    if (_dragging && peg != null) TryExtend(peg);
+                    return;
+
+                case PointerPhase.Ended:
+                    if (!_dragging) return;
+
+                    _dragging = false;
+
+                    // An incomplete run is abandoned rather than left on screen: the player let go, and
+                    // a half-drawn band that survives the gesture is just confusing.
+                    if (_selection.Count < flowController.Validator.RequiredPegCount) ClearSelection();
+                    return;
+            }
+        }
+
+        /// <summary>
+        /// Adds a peg the drag has reached, backtracks over the previous one, or ignores it.
+        /// </summary>
+        private void TryExtend(Peg peg)
+        {
+            if (_selection.Count > 0 && _selection[_selection.Count - 1] == peg) return;   // still on it
+
+            // Reversing onto the peg before last: undo rather than refuse.
+            if (_selection.Count > 1 && _selection[_selection.Count - 2] == peg)
+            {
+                RemoveLast();
+                return;
+            }
+
+            if (_selection.Contains(peg)) return;
+            if (!_legalNextPegs.Contains(peg)) return;   // silent: a drag brushes past pegs constantly
+
+            _selection.Add(peg);
+            GameEvents.RaiseSelectionChanged(_selection);
+
+            if (_selection.Count < flowController.Validator.RequiredPegCount)
+            {
+                RefreshLegalNextPegs();
+                return;
+            }
+
+            // Complete. Submitting here rather than on release makes the band snap into place under the
+            // finger, which is the moment it is obvious the gesture worked.
+            _dragging = false;
+
+            bool accepted = flowController.SubmitBandSelection(_selection);
+            ClearSelection();
+
+            if (!accepted) RefreshLegalNextPegs();
+        }
+
+        /// <summary>Where the pointer is in its press, if it is pressed at all.</summary>
+        private enum PointerPhase
+        {
+            /// <summary>Present but not pressed - a hovering mouse.</summary>
+            None,
+
+            Began,
+            Held,
+            Ended
+        }
+
+        /// <summary>
+        /// Reads position and press state from touch when a finger is down, otherwise from the mouse.
+        /// </summary>
+        private bool TryGetPointer(out Vector3 position, out PointerPhase phase)
         {
             if (Input.touchSupported && Input.touchCount > 0)
             {
                 Touch touch = Input.GetTouch(0);
                 position = touch.position;
-                pressedThisFrame = touch.phase == TouchPhase.Began;
+
+                phase = touch.phase switch
+                {
+                    TouchPhase.Began => PointerPhase.Began,
+                    TouchPhase.Moved or TouchPhase.Stationary => PointerPhase.Held,
+                    _ => PointerPhase.Ended
+                };
+
                 return true;
             }
 
             if (!Input.mousePresent)
             {
                 position = Vector3.zero;
-                pressedThisFrame = false;
+                phase = PointerPhase.None;
                 return false;
             }
 
             position = Input.mousePosition;
-            pressedThisFrame = Input.GetMouseButtonDown(0);
+
+            if (Input.GetMouseButtonDown(0)) phase = PointerPhase.Began;
+            else if (Input.GetMouseButtonUp(0)) phase = PointerPhase.Ended;
+            else if (Input.GetMouseButton(0)) phase = PointerPhase.Held;
+            else phase = PointerPhase.None;
+
             return true;
         }
 
@@ -245,6 +406,7 @@ namespace Triggle.Interaction
 
         private void HandleTurnStarted(PlayerId player)
         {
+            _dragging = false;
             _selection.Clear();
             RefreshLegalNextPegs();
             GameEvents.RaiseSelectionChanged(_selection);
@@ -252,6 +414,7 @@ namespace Triggle.Interaction
 
         private void HandleGameReset()
         {
+            _dragging = false;
             _selection.Clear();
             _legalNextPegs.Clear();
             SetHovered(null);
@@ -260,6 +423,7 @@ namespace Triggle.Interaction
 
         private void HandleGameOver(GameResult result)
         {
+            _dragging = false;
             _selection.Clear();
             _legalNextPegs.Clear();
             SetHovered(null);
